@@ -7,41 +7,9 @@ from pyconjp_image_search.manager.repository import _row_to_metadata
 from pyconjp_image_search.models import ImageMetadata
 
 
-def search_images(
-    conn: duckdb.DuckDBPyConnection,
-    event_name: str | None = None,
-    event_year: int | None = None,
-    limit: int = 50,
-) -> list[ImageMetadata]:
-    """Search images with optional filters."""
-    query = "SELECT * FROM images WHERE 1=1"
-    params: list = []
-
-    if event_name:
-        query += " AND event_name = ?"
-        params.append(event_name)
-    if event_year:
-        query += " AND event_year = ?"
-        params.append(event_year)
-
-    query += " ORDER BY created_at DESC LIMIT ?"
-    params.append(limit)
-
-    rows = conn.execute(query, params).fetchall()
-    return [_row_to_metadata(row) for row in rows]
-
-
 def get_event_names(conn: duckdb.DuckDBPyConnection) -> list[str]:
     """Get distinct event names from the database."""
     rows = conn.execute("SELECT DISTINCT event_name FROM images ORDER BY event_name").fetchall()
-    return [row[0] for row in rows]
-
-
-def get_event_years(conn: duckdb.DuckDBPyConnection) -> list[int]:
-    """Get distinct event years from the database."""
-    rows = conn.execute(
-        "SELECT DISTINCT event_year FROM images ORDER BY event_year DESC"
-    ).fetchall()
     return [row[0] for row in rows]
 
 
@@ -50,19 +18,33 @@ def search_images_by_text(
     query_embedding: np.ndarray,
     model_name: str,
     limit: int = 20,
+    offset: int = 0,
+    event_names: list[str] | None = None,
 ) -> list[tuple[ImageMetadata, float]]:
     """Search images by cosine similarity to a text embedding."""
     query_vec = query_embedding.flatten().tolist()
+    params: list = [query_vec, model_name]
+
+    where_clauses = ["e.model_name = ?"]
+    if event_names:
+        placeholders = ", ".join(["?"] * len(event_names))
+        where_clauses.append(f"i.event_name IN ({placeholders})")
+        params.extend(event_names)
+
+    where_sql = " AND ".join(where_clauses)
+    params.extend([limit, offset])
+
     rows = conn.execute(
-        """
+        f"""
         SELECT i.*, list_cosine_similarity(e.embedding, ?::FLOAT[768]) AS score
         FROM image_embeddings e
         JOIN images i ON i.id = e.image_id
-        WHERE e.model_name = ?
+        WHERE {where_sql}
         ORDER BY score DESC
         LIMIT ?
+        OFFSET ?
         """,
-        [query_vec, model_name, limit],
+        params,
     ).fetchall()
     results = []
     for row in rows:
