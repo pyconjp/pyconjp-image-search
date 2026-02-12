@@ -11,7 +11,7 @@ import numpy as np
 import gradio as gr
 from PIL import Image
 
-from pyconjp_image_search.config import SIGLIP_MODEL_NAME
+from pyconjp_image_search.config import FLICKR_USER_ID, SIGLIP_MODEL_NAME
 from pyconjp_image_search.db import get_connection
 from pyconjp_image_search.models import ImageMetadata
 from pyconjp_image_search.search.query import (
@@ -332,11 +332,20 @@ def create_app() -> gr.Blocks:
 
     # ── Preview helpers ──────────────────────────────────────────────
 
+    def _build_preview_caption(gallery_item, metadata_list, index):
+        caption = gallery_item[1] if isinstance(gallery_item, (list, tuple)) and len(gallery_item) > 1 else ""
+        if index is not None and index < len(metadata_list):
+            meta = metadata_list[index]
+            if meta.flickr_photo_id and FLICKR_USER_ID:
+                page_url = f"https://www.flickr.com/photos/{FLICKR_USER_ID}/{meta.flickr_photo_id}/"
+                caption += f" | [Flickr で開く]({page_url})"
+        return caption
+
     def _on_gallery_select(gallery_items: list, metadata_list: list, evt: gr.EventData):
         index = evt._data.get("index")
         if index is not None and gallery_items:
             item = gallery_items[index]
-            caption = item[1] if isinstance(item, (list, tuple)) and len(item) > 1 else ""
+            caption = _build_preview_caption(item, metadata_list, index)
             preview_url = _get_preview_url(item)
             return (
                 gr.update(value=preview_url, visible=True),
@@ -355,7 +364,7 @@ def create_app() -> gr.Blocks:
         index = evt._data.get("index")
         if index is not None and gallery_items:
             item = gallery_items[index]
-            caption = item[1] if isinstance(item, (list, tuple)) and len(item) > 1 else ""
+            caption = _build_preview_caption(item, metadata_list, index)
             preview_url = _get_preview_url(item)
             return gr.update(value=preview_url), gr.update(value=caption), index
         return gr.update(), gr.update(), None
@@ -562,6 +571,14 @@ def create_app() -> gr.Blocks:
                         text_metadata_state, text_embedding_state,
                         text_load_more_btn,
                     ],
+                ).then(
+                    fn=_on_close_preview,
+                    outputs=[
+                        text_preview_image, text_preview_caption,
+                        text_thumb_strip, text_close_btn,
+                        text_find_similar_btn, text_search_cropped_btn,
+                        text_copy_clipboard_btn,
+                    ],
                 )
                 text_load_more_btn.click(
                     fn=do_text_load_more,
@@ -716,6 +733,14 @@ def create_app() -> gr.Blocks:
                         image_metadata_state, image_embedding_state,
                         image_load_more_btn,
                     ],
+                ).then(
+                    fn=_on_close_preview,
+                    outputs=[
+                        img_preview_image, img_preview_caption,
+                        img_thumb_strip, img_close_btn,
+                        img_find_similar_btn, img_search_cropped_btn,
+                        img_copy_clipboard_btn,
+                    ],
                 )
                 image_load_more_btn.click(
                     fn=do_image_load_more,
@@ -761,6 +786,25 @@ def create_app() -> gr.Blocks:
                     js=COPY_CLIPBOARD_JS % "img-preview",
                 )
 
+        # ── Close previews on tab switch ─────────────────────────────
+        def _on_tab_switch():
+            close = _on_close_preview()
+            return close + close  # both tabs
+
+        tabs.select(
+            fn=_on_tab_switch,
+            outputs=[
+                text_preview_image, text_preview_caption,
+                text_thumb_strip, text_close_btn,
+                text_find_similar_btn, text_search_cropped_btn,
+                text_copy_clipboard_btn,
+                img_preview_image, img_preview_caption,
+                img_thumb_strip, img_close_btn,
+                img_find_similar_btn, img_search_cropped_btn,
+                img_copy_clipboard_btn,
+            ],
+        )
+
         # ── Cross-tab wiring (Find Similar / Search Cropped) ─────────
         _find_similar_outputs = [
             image_gallery, image_info,
@@ -770,15 +814,34 @@ def create_app() -> gr.Blocks:
             image_input, tabs,
         ]
 
+        _text_close_outputs = [
+            text_preview_image, text_preview_caption,
+            text_thumb_strip, text_close_btn,
+            text_find_similar_btn, text_search_cropped_btn,
+            text_copy_clipboard_btn,
+        ]
+        _img_close_outputs = [
+            img_preview_image, img_preview_caption,
+            img_thumb_strip, img_close_btn,
+            img_find_similar_btn, img_search_cropped_btn,
+            img_copy_clipboard_btn,
+        ]
+
         text_find_similar_btn.click(
             fn=_do_find_similar,
             inputs=[text_selected_index_state, text_metadata_state, text_event_filter],
             outputs=_find_similar_outputs,
+        ).then(
+            fn=_on_close_preview,
+            outputs=_text_close_outputs,
         )
         img_find_similar_btn.click(
             fn=_do_find_similar,
             inputs=[image_selected_index_state, image_metadata_state, image_event_filter],
             outputs=_find_similar_outputs,
+        ).then(
+            fn=_on_close_preview,
+            outputs=_img_close_outputs,
         )
 
         # Search Cropped: JS extracts crop rect → JSON → Python fetches & crops
@@ -790,6 +853,9 @@ def create_app() -> gr.Blocks:
             fn=_do_search_cropped,
             inputs=[text_crop_data, text_event_filter],
             outputs=_find_similar_outputs,
+        ).then(
+            fn=_on_close_preview,
+            outputs=_text_close_outputs,
         )
         img_search_cropped_btn.click(
             fn=None,
@@ -799,6 +865,9 @@ def create_app() -> gr.Blocks:
             fn=_do_search_cropped,
             inputs=[img_crop_data, image_event_filter],
             outputs=_find_similar_outputs,
+        ).then(
+            fn=_on_close_preview,
+            outputs=_img_close_outputs,
         )
 
     return app
