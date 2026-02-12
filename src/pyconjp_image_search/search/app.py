@@ -339,7 +339,9 @@ def create_app() -> gr.Blocks:
         if index is not None and index < len(metadata_list):
             meta = metadata_list[index]
             if meta.flickr_photo_id and FLICKR_USER_ID:
-                page_url = f"https://www.flickr.com/photos/{FLICKR_USER_ID}/{meta.flickr_photo_id}/"
+                page_url = (
+                    f"https://www.flickr.com/photos/{FLICKR_USER_ID}/{meta.flickr_photo_id}/"
+                )
                 caption += f" | [Flickr で開く]({page_url})"
         return caption
 
@@ -353,10 +355,10 @@ def create_app() -> gr.Blocks:
                 gr.update(value=preview_url, visible=True),
                 gr.update(value=caption, visible=True),
                 gr.update(value=gallery_items, visible=True),
-                gr.update(visible=True),   # close btn
-                gr.update(visible=True),   # find similar btn
-                gr.update(visible=True),   # search cropped btn (JS will disable)
-                gr.update(visible=True),   # copy clipboard btn (JS will disable)
+                gr.update(visible=True),  # close btn
+                gr.update(visible=True),  # find similar btn
+                gr.update(visible=True),  # search cropped btn (JS will disable)
+                gr.update(visible=True),  # copy clipboard btn (JS will disable)
                 index,
             )
         hidden = gr.update(visible=False)
@@ -410,10 +412,16 @@ def create_app() -> gr.Blocks:
         source_url = _flickr_url_resize(meta.image_url, "b")
         msg = f"Found {len(results)} images similar to selected image."
         return (
-            gallery_items, msg, PAGE_SIZE, gallery_items,
-            new_metadata, emb.tolist(),
-            gr.update(visible=has_more), selected_events,
-            source_url, gr.Tabs(selected=1),
+            gallery_items,
+            msg,
+            PAGE_SIZE,
+            gallery_items,
+            new_metadata,
+            emb.tolist(),
+            gr.update(visible=has_more),
+            selected_events,
+            source_url,
+            gr.Tabs(selected=1),
         )
 
     def _do_search_cropped(
@@ -453,10 +461,16 @@ def create_app() -> gr.Blocks:
         has_more = len(results) == PAGE_SIZE
         msg = f"Found {len(results)} images similar to cropped region."
         return (
-            gallery_items, msg, PAGE_SIZE, gallery_items,
-            new_metadata, query_emb.tolist(),
-            gr.update(visible=has_more), selected_events,
-            str(image_path), gr.Tabs(selected=1),
+            gallery_items,
+            msg,
+            PAGE_SIZE,
+            gallery_items,
+            new_metadata,
+            query_emb.tolist(),
+            gr.update(visible=has_more),
+            selected_events,
+            str(image_path),
+            gr.Tabs(selected=1),
         )
 
     # ── Build UI ─────────────────────────────────────────────────────
@@ -473,35 +487,48 @@ def create_app() -> gr.Blocks:
                         placeholder="e.g. keynote speaker on stage",
                     )
                     text_event_filter = gr.Dropdown(
-                        choices=event_names, value=[], multiselect=True,
+                        choices=event_names,
+                        value=[],
+                        multiselect=True,
                         label="Filter by Event",
                     )
                     text_btn = gr.Button("Search")
 
                 text_preview_image = gr.Image(
-                    label="Preview", visible=False, height=480,
+                    label="Preview",
+                    visible=False,
+                    height=480,
                     elem_id="text-preview",
                 )
                 text_preview_caption = gr.Markdown("", visible=False)
                 with gr.Row():
                     text_find_similar_btn = gr.Button("Find Similar", visible=False)
                     text_search_cropped_btn = gr.Button(
-                        "Search Cropped", visible=False,
+                        "Search Cropped",
+                        visible=False,
                         elem_id="text-search-cropped-btn",
                     )
                     text_copy_clipboard_btn = gr.Button(
-                        "Copy to Clipboard", visible=False,
+                        "Copy to Clipboard",
+                        visible=False,
                         elem_id="text-copy-clipboard-btn",
                     )
                     text_close_btn = gr.Button("Close Preview", visible=False)
                 text_thumb_strip = gr.Gallery(
-                    label="", visible=False, rows=1, height=100,
-                    allow_preview=False, elem_classes=["thumb-strip"],
+                    label="",
+                    visible=False,
+                    rows=1,
+                    height=100,
+                    allow_preview=False,
+                    elem_classes=["thumb-strip"],
                 )
 
                 text_gallery = gr.Gallery(
-                    label="Results", columns=4, height="auto",
-                    allow_preview=False, elem_classes=["full-height-gallery"],
+                    label="Results",
+                    columns=4,
+                    height="auto",
+                    allow_preview=False,
+                    elem_classes=["full-height-gallery"],
                 )
                 text_info = gr.Markdown("")
                 text_load_more_btn = gr.Button("Load More", visible=False)
@@ -516,15 +543,22 @@ def create_app() -> gr.Blocks:
                 def do_text_search(query: str, selected_events: list[str]) -> tuple:
                     if not query.strip():
                         return (
-                            [], "Please enter a search query.",
-                            0, [], [], None, gr.update(visible=False),
+                            [],
+                            "Please enter a search query.",
+                            0,
+                            [],
+                            [],
+                            None,
+                            gr.update(visible=False),
                         )
                     embedder = _get_embedder()
                     query_emb = embedder.embed_text(query)
                     results = search_images_by_text(
-                        conn, query_embedding=query_emb,
+                        conn,
+                        query_embedding=query_emb,
                         model_name=SIGLIP_MODEL_NAME,
-                        limit=PAGE_SIZE, offset=0,
+                        limit=PAGE_SIZE,
+                        offset=0,
                         event_names=selected_events or None,
                     )
                     gallery_items, metadata = _make_gallery_items(results)
@@ -532,25 +566,36 @@ def create_app() -> gr.Blocks:
                     return (
                         gallery_items,
                         f"Found {len(results)} images for '{query}'.",
-                        PAGE_SIZE, gallery_items, metadata,
-                        query_emb.tolist(), gr.update(visible=has_more),
+                        PAGE_SIZE,
+                        gallery_items,
+                        metadata,
+                        query_emb.tolist(),
+                        gr.update(visible=has_more),
                     )
 
                 def do_text_load_more(
-                    selected_events: list[str], offset: int,
-                    accumulated: list, accumulated_meta: list, query_emb_list,
+                    selected_events: list[str],
+                    offset: int,
+                    accumulated: list,
+                    accumulated_meta: list,
+                    query_emb_list,
                 ) -> tuple:
                     if query_emb_list is None:
                         return (
-                            accumulated, "No active search.",
-                            offset, accumulated, accumulated_meta,
+                            accumulated,
+                            "No active search.",
+                            offset,
+                            accumulated,
+                            accumulated_meta,
                             gr.update(visible=False),
                         )
                     query_emb = np.array(query_emb_list)
                     results = search_images_by_text(
-                        conn, query_embedding=query_emb,
+                        conn,
+                        query_embedding=query_emb,
                         model_name=SIGLIP_MODEL_NAME,
-                        limit=PAGE_SIZE, offset=offset,
+                        limit=PAGE_SIZE,
+                        offset=offset,
                         event_names=selected_events or None,
                     )
                     new_items, new_meta = _make_gallery_items(results)
@@ -560,7 +605,9 @@ def create_app() -> gr.Blocks:
                     return (
                         combined,
                         f"Showing {len(combined)} images.",
-                        offset + len(results), combined, combined_meta,
+                        offset + len(results),
+                        combined,
+                        combined_meta,
                         gr.update(visible=has_more),
                     )
 
@@ -568,41 +615,56 @@ def create_app() -> gr.Blocks:
                     fn=do_text_search,
                     inputs=[text_input, text_event_filter],
                     outputs=[
-                        text_gallery, text_info,
-                        text_offset_state, text_results_state,
-                        text_metadata_state, text_embedding_state,
+                        text_gallery,
+                        text_info,
+                        text_offset_state,
+                        text_results_state,
+                        text_metadata_state,
+                        text_embedding_state,
                         text_load_more_btn,
                     ],
                 ).then(
                     fn=_on_close_preview,
                     outputs=[
-                        text_preview_image, text_preview_caption,
-                        text_thumb_strip, text_close_btn,
-                        text_find_similar_btn, text_search_cropped_btn,
+                        text_preview_image,
+                        text_preview_caption,
+                        text_thumb_strip,
+                        text_close_btn,
+                        text_find_similar_btn,
+                        text_search_cropped_btn,
                         text_copy_clipboard_btn,
                     ],
                 )
                 text_load_more_btn.click(
                     fn=do_text_load_more,
                     inputs=[
-                        text_event_filter, text_offset_state,
-                        text_results_state, text_metadata_state,
+                        text_event_filter,
+                        text_offset_state,
+                        text_results_state,
+                        text_metadata_state,
                         text_embedding_state,
                     ],
                     outputs=[
-                        text_gallery, text_info,
-                        text_offset_state, text_results_state,
-                        text_metadata_state, text_load_more_btn,
+                        text_gallery,
+                        text_info,
+                        text_offset_state,
+                        text_results_state,
+                        text_metadata_state,
+                        text_load_more_btn,
                     ],
                 )
                 text_gallery.select(
                     fn=_on_gallery_select,
                     inputs=[text_results_state, text_metadata_state],
                     outputs=[
-                        text_preview_image, text_preview_caption,
-                        text_thumb_strip, text_close_btn,
-                        text_find_similar_btn, text_search_cropped_btn,
-                        text_copy_clipboard_btn, text_selected_index_state,
+                        text_preview_image,
+                        text_preview_caption,
+                        text_thumb_strip,
+                        text_close_btn,
+                        text_find_similar_btn,
+                        text_search_cropped_btn,
+                        text_copy_clipboard_btn,
+                        text_selected_index_state,
                     ],
                     js=SCROLL_AND_INIT_CROP_JS % ("text-preview", "text-preview"),
                 )
@@ -615,9 +677,12 @@ def create_app() -> gr.Blocks:
                 text_close_btn.click(
                     fn=_on_close_preview,
                     outputs=[
-                        text_preview_image, text_preview_caption,
-                        text_thumb_strip, text_close_btn,
-                        text_find_similar_btn, text_search_cropped_btn,
+                        text_preview_image,
+                        text_preview_caption,
+                        text_thumb_strip,
+                        text_close_btn,
+                        text_find_similar_btn,
+                        text_search_cropped_btn,
                         text_copy_clipboard_btn,
                     ],
                 )
@@ -630,38 +695,52 @@ def create_app() -> gr.Blocks:
             with gr.TabItem("Image Search", id=1):
                 with gr.Row():
                     image_input = gr.Image(
-                        label="Upload an image", type="filepath",
+                        label="Upload an image",
+                        type="filepath",
                     )
                     image_event_filter = gr.Dropdown(
-                        choices=event_names, value=[], multiselect=True,
+                        choices=event_names,
+                        value=[],
+                        multiselect=True,
                         label="Filter by Event",
                     )
                     image_btn = gr.Button("Search Similar")
 
                 img_preview_image = gr.Image(
-                    label="Preview", visible=False, height=480,
+                    label="Preview",
+                    visible=False,
+                    height=480,
                     elem_id="img-preview",
                 )
                 img_preview_caption = gr.Markdown("", visible=False)
                 with gr.Row():
                     img_find_similar_btn = gr.Button("Find Similar", visible=False)
                     img_search_cropped_btn = gr.Button(
-                        "Search Cropped", visible=False,
+                        "Search Cropped",
+                        visible=False,
                         elem_id="img-search-cropped-btn",
                     )
                     img_copy_clipboard_btn = gr.Button(
-                        "Copy to Clipboard", visible=False,
+                        "Copy to Clipboard",
+                        visible=False,
                         elem_id="img-copy-clipboard-btn",
                     )
                     img_close_btn = gr.Button("Close Preview", visible=False)
                 img_thumb_strip = gr.Gallery(
-                    label="", visible=False, rows=1, height=100,
-                    allow_preview=False, elem_classes=["thumb-strip"],
+                    label="",
+                    visible=False,
+                    rows=1,
+                    height=100,
+                    allow_preview=False,
+                    elem_classes=["thumb-strip"],
                 )
 
                 image_gallery = gr.Gallery(
-                    label="Results", columns=4, height="auto",
-                    allow_preview=False, elem_classes=["full-height-gallery"],
+                    label="Results",
+                    columns=4,
+                    height="auto",
+                    allow_preview=False,
+                    elem_classes=["full-height-gallery"],
                 )
                 image_info = gr.Markdown("")
                 image_load_more_btn = gr.Button("Load More", visible=False)
@@ -674,19 +753,27 @@ def create_app() -> gr.Blocks:
                 image_selected_index_state = gr.State(None)
 
                 def do_image_search(
-                    image_path: str | None, selected_events: list[str],
+                    image_path: str | None,
+                    selected_events: list[str],
                 ) -> tuple:
                     if image_path is None:
                         return (
-                            [], "Please upload an image.",
-                            0, [], [], None, gr.update(visible=False),
+                            [],
+                            "Please upload an image.",
+                            0,
+                            [],
+                            [],
+                            None,
+                            gr.update(visible=False),
                         )
                     embedder = _get_embedder()
                     query_emb = embedder.embed_images([Path(image_path)])
                     results = search_images_by_text(
-                        conn, query_embedding=query_emb,
+                        conn,
+                        query_embedding=query_emb,
                         model_name=SIGLIP_MODEL_NAME,
-                        limit=PAGE_SIZE, offset=0,
+                        limit=PAGE_SIZE,
+                        offset=0,
                         event_names=selected_events or None,
                     )
                     gallery_items, metadata = _make_gallery_items(results)
@@ -694,25 +781,36 @@ def create_app() -> gr.Blocks:
                     return (
                         gallery_items,
                         f"Found {len(results)} similar images.",
-                        PAGE_SIZE, gallery_items, metadata,
-                        query_emb.tolist(), gr.update(visible=has_more),
+                        PAGE_SIZE,
+                        gallery_items,
+                        metadata,
+                        query_emb.tolist(),
+                        gr.update(visible=has_more),
                     )
 
                 def do_image_load_more(
-                    selected_events: list[str], offset: int,
-                    accumulated: list, accumulated_meta: list, query_emb_list,
+                    selected_events: list[str],
+                    offset: int,
+                    accumulated: list,
+                    accumulated_meta: list,
+                    query_emb_list,
                 ) -> tuple:
                     if query_emb_list is None:
                         return (
-                            accumulated, "No active search.",
-                            offset, accumulated, accumulated_meta,
+                            accumulated,
+                            "No active search.",
+                            offset,
+                            accumulated,
+                            accumulated_meta,
                             gr.update(visible=False),
                         )
                     query_emb = np.array(query_emb_list)
                     results = search_images_by_text(
-                        conn, query_embedding=query_emb,
+                        conn,
+                        query_embedding=query_emb,
                         model_name=SIGLIP_MODEL_NAME,
-                        limit=PAGE_SIZE, offset=offset,
+                        limit=PAGE_SIZE,
+                        offset=offset,
                         event_names=selected_events or None,
                     )
                     new_items, new_meta = _make_gallery_items(results)
@@ -722,7 +820,9 @@ def create_app() -> gr.Blocks:
                     return (
                         combined,
                         f"Showing {len(combined)} images.",
-                        offset + len(results), combined, combined_meta,
+                        offset + len(results),
+                        combined,
+                        combined_meta,
                         gr.update(visible=has_more),
                     )
 
@@ -730,41 +830,56 @@ def create_app() -> gr.Blocks:
                     fn=do_image_search,
                     inputs=[image_input, image_event_filter],
                     outputs=[
-                        image_gallery, image_info,
-                        image_offset_state, image_results_state,
-                        image_metadata_state, image_embedding_state,
+                        image_gallery,
+                        image_info,
+                        image_offset_state,
+                        image_results_state,
+                        image_metadata_state,
+                        image_embedding_state,
                         image_load_more_btn,
                     ],
                 ).then(
                     fn=_on_close_preview,
                     outputs=[
-                        img_preview_image, img_preview_caption,
-                        img_thumb_strip, img_close_btn,
-                        img_find_similar_btn, img_search_cropped_btn,
+                        img_preview_image,
+                        img_preview_caption,
+                        img_thumb_strip,
+                        img_close_btn,
+                        img_find_similar_btn,
+                        img_search_cropped_btn,
                         img_copy_clipboard_btn,
                     ],
                 )
                 image_load_more_btn.click(
                     fn=do_image_load_more,
                     inputs=[
-                        image_event_filter, image_offset_state,
-                        image_results_state, image_metadata_state,
+                        image_event_filter,
+                        image_offset_state,
+                        image_results_state,
+                        image_metadata_state,
                         image_embedding_state,
                     ],
                     outputs=[
-                        image_gallery, image_info,
-                        image_offset_state, image_results_state,
-                        image_metadata_state, image_load_more_btn,
+                        image_gallery,
+                        image_info,
+                        image_offset_state,
+                        image_results_state,
+                        image_metadata_state,
+                        image_load_more_btn,
                     ],
                 )
                 image_gallery.select(
                     fn=_on_gallery_select,
                     inputs=[image_results_state, image_metadata_state],
                     outputs=[
-                        img_preview_image, img_preview_caption,
-                        img_thumb_strip, img_close_btn,
-                        img_find_similar_btn, img_search_cropped_btn,
-                        img_copy_clipboard_btn, image_selected_index_state,
+                        img_preview_image,
+                        img_preview_caption,
+                        img_thumb_strip,
+                        img_close_btn,
+                        img_find_similar_btn,
+                        img_search_cropped_btn,
+                        img_copy_clipboard_btn,
+                        image_selected_index_state,
                     ],
                     js=SCROLL_AND_INIT_CROP_JS % ("img-preview", "img-preview"),
                 )
@@ -777,9 +892,12 @@ def create_app() -> gr.Blocks:
                 img_close_btn.click(
                     fn=_on_close_preview,
                     outputs=[
-                        img_preview_image, img_preview_caption,
-                        img_thumb_strip, img_close_btn,
-                        img_find_similar_btn, img_search_cropped_btn,
+                        img_preview_image,
+                        img_preview_caption,
+                        img_thumb_strip,
+                        img_close_btn,
+                        img_find_similar_btn,
+                        img_search_cropped_btn,
                         img_copy_clipboard_btn,
                     ],
                 )
@@ -796,36 +914,53 @@ def create_app() -> gr.Blocks:
         tabs.select(
             fn=_on_tab_switch,
             outputs=[
-                text_preview_image, text_preview_caption,
-                text_thumb_strip, text_close_btn,
-                text_find_similar_btn, text_search_cropped_btn,
+                text_preview_image,
+                text_preview_caption,
+                text_thumb_strip,
+                text_close_btn,
+                text_find_similar_btn,
+                text_search_cropped_btn,
                 text_copy_clipboard_btn,
-                img_preview_image, img_preview_caption,
-                img_thumb_strip, img_close_btn,
-                img_find_similar_btn, img_search_cropped_btn,
+                img_preview_image,
+                img_preview_caption,
+                img_thumb_strip,
+                img_close_btn,
+                img_find_similar_btn,
+                img_search_cropped_btn,
                 img_copy_clipboard_btn,
             ],
         )
 
         # ── Cross-tab wiring (Find Similar / Search Cropped) ─────────
         _find_similar_outputs = [
-            image_gallery, image_info,
-            image_offset_state, image_results_state,
-            image_metadata_state, image_embedding_state,
-            image_load_more_btn, image_event_filter,
-            image_input, tabs,
+            image_gallery,
+            image_info,
+            image_offset_state,
+            image_results_state,
+            image_metadata_state,
+            image_embedding_state,
+            image_load_more_btn,
+            image_event_filter,
+            image_input,
+            tabs,
         ]
 
         _text_close_outputs = [
-            text_preview_image, text_preview_caption,
-            text_thumb_strip, text_close_btn,
-            text_find_similar_btn, text_search_cropped_btn,
+            text_preview_image,
+            text_preview_caption,
+            text_thumb_strip,
+            text_close_btn,
+            text_find_similar_btn,
+            text_search_cropped_btn,
             text_copy_clipboard_btn,
         ]
         _img_close_outputs = [
-            img_preview_image, img_preview_caption,
-            img_thumb_strip, img_close_btn,
-            img_find_similar_btn, img_search_cropped_btn,
+            img_preview_image,
+            img_preview_caption,
+            img_thumb_strip,
+            img_close_btn,
+            img_find_similar_btn,
+            img_search_cropped_btn,
             img_copy_clipboard_btn,
         ]
 

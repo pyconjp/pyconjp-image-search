@@ -83,7 +83,11 @@ def test_search_images_by_text_with_event_filter(db_conn):
 
     # Filter to only "PyCon JP 2024"
     results = search_images_by_text(
-        db_conn, embeddings[0:1], model, limit=10, event_names=["PyCon JP 2024"],
+        db_conn,
+        embeddings[0:1],
+        model,
+        limit=10,
+        event_names=["PyCon JP 2024"],
     )
     assert len(results) == 1
     assert results[0][0].event_name == "PyCon JP 2024"
