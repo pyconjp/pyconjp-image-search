@@ -7,6 +7,7 @@ from pyconjp_image_search.embedding.repository import insert_embeddings
 from pyconjp_image_search.manager.repository import insert_image
 from pyconjp_image_search.search.query import (
     get_event_names,
+    get_image_embedding,
     search_images_by_text,
 )
 
@@ -17,6 +18,31 @@ def test_get_event_names(db_conn):
     insert_image(db_conn, make_metadata("3", event_name="PyCon JP"))
     names = get_event_names(db_conn)
     assert names == ["PyCon JP", "PyCon US"]
+
+
+def test_get_image_embedding(db_conn):
+    insert_image(db_conn, make_metadata("1"))
+    image_ids = [row[0] for row in db_conn.execute("SELECT id FROM images ORDER BY id").fetchall()]
+
+    rng = np.random.default_rng(42)
+    embeddings = rng.standard_normal((1, 768)).astype(np.float32)
+    norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
+    embeddings = embeddings / norms
+
+    model = "test-model"
+    insert_embeddings(db_conn, image_ids, embeddings, model)
+
+    # Existing embedding
+    result = get_image_embedding(db_conn, image_ids[0], model)
+    assert result is not None
+    assert result.shape == (768,)
+    np.testing.assert_allclose(result, embeddings[0], atol=1e-6)
+
+    # Non-existent image
+    assert get_image_embedding(db_conn, 9999, model) is None
+
+    # Non-existent model
+    assert get_image_embedding(db_conn, image_ids[0], "no-model") is None
 
 
 def test_search_images_by_text_cosine(db_conn):

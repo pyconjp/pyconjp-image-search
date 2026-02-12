@@ -130,13 +130,42 @@ uv run pyconjp-search
 
 Gradio ベースの Web UI が起動します（デフォルト: http://localhost:7860）。
 
-3つのタブがあります:
+#### Text Search タブ
 
-- **Browse** -- イベント名・年で絞り込んで画像を一覧表示
-- **Text Search** -- テキストで画像を検索（例: "keynote speaker on stage"）
-- **Image Search** -- 画像をアップロードして類似画像を検索
+テキストで画像を検索します（例: "keynote speaker on stage"）。SigLIP モデルでテキストを Embedding に変換し、コサイン類似度で検索します。
 
-Text Search と Image Search は SigLIP の Embedding を使ったコサイン類似度検索です。モデルは初回検索時に自動ロードされます。
+- **イベントフィルター** -- ドロップダウンでイベント名を選択して絞り込み
+- **プレビュー** -- 検索結果の画像をクリックすると拡大プレビュー表示
+- **サムネイルストリップ** -- プレビュー下部に検索結果のサムネイル一覧を表示
+- **Load More** -- ページネーション（20件ずつ追加読み込み）
+
+#### Image Search タブ
+
+画像をアップロードして類似画像を検索します。機能は Text Search と同様です。
+
+#### Find Similar（類似画像検索）
+
+Text Search・Image Search どちらのタブでも、プレビュー表示中に **Find Similar** ボタンをクリックすると：
+
+- 選択中の画像の DB に保存済みの Embedding を使って類似検索を実行
+- Image Search タブに自動切り替え
+- イベントフィルターの条件を引き継ぎ
+- 検索元の画像を Image Search のアップロード欄に表示
+
+#### クロップ機能
+
+プレビュー画像上でマウスドラッグにより矩形を選択できます。
+
+- **Search Cropped** -- 選択した矩形領域をクロップしてサーバー側で SigLIP の Embedding を生成し、その領域に類似する画像を Image Search タブで検索
+- **Copy to Clipboard** -- 選択した矩形領域をクリップボードにコピー
+
+矩形が選択されるまで Search Cropped・Copy to Clipboard ボタンは無効化されます。
+
+#### 画像表示
+
+検索結果の画像は Flickr の静的 CDN URL から直接表示されます（ローカルファイル不要）。ギャラリーには 640px サイズ、プレビューには 1024px サイズが使用されます。
+
+モデルは初回検索時に自動ロードされます。
 
 ## プロジェクト構成
 

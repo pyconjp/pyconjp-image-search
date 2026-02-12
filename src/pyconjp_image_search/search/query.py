@@ -13,6 +13,21 @@ def get_event_names(conn: duckdb.DuckDBPyConnection) -> list[str]:
     return [row[0] for row in rows]
 
 
+def get_image_embedding(
+    conn: duckdb.DuckDBPyConnection,
+    image_id: int,
+    model_name: str,
+) -> np.ndarray | None:
+    """Get the stored embedding for an image by its database ID."""
+    row = conn.execute(
+        "SELECT embedding FROM image_embeddings WHERE image_id = ? AND model_name = ?",
+        [image_id, model_name],
+    ).fetchone()
+    if row is None:
+        return None
+    return np.array(row[0], dtype=np.float32)
+
+
 def search_images_by_text(
     conn: duckdb.DuckDBPyConnection,
     query_embedding: np.ndarray,
