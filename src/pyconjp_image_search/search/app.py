@@ -7,8 +7,8 @@ import urllib.request
 from io import BytesIO
 from pathlib import Path
 
-import numpy as np
 import gradio as gr
+import numpy as np
 from PIL import Image
 
 from pyconjp_image_search.config import FLICKR_USER_ID, SIGLIP_MODEL_NAME
@@ -333,7 +333,9 @@ def create_app() -> gr.Blocks:
     # ── Preview helpers ──────────────────────────────────────────────
 
     def _build_preview_caption(gallery_item, metadata_list, index):
-        caption = gallery_item[1] if isinstance(gallery_item, (list, tuple)) and len(gallery_item) > 1 else ""
+        caption = ""
+        if isinstance(gallery_item, (list, tuple)) and len(gallery_item) > 1:
+            caption = gallery_item[1]
         if index is not None and index < len(metadata_list):
             meta = metadata_list[index]
             if meta.flickr_photo_id and FLICKR_USER_ID:
