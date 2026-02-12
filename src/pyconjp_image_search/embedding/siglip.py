@@ -48,7 +48,7 @@ class SigLIPEmbedder:
 
     def embed_text(self, text: str) -> np.ndarray:
         """Embed a single text query. Returns L2-normalized vector (1, dim)."""
-        inputs = self.tokenizer([text], padding="max_length", return_tensors="pt")
+        inputs = self.tokenizer([text], padding="max_length", truncation=True, return_tensors="pt")
         inputs = {k: v.to(self.device) for k, v in inputs.items()}
         with torch.no_grad():
             outputs = self.model.get_text_features(**inputs)
