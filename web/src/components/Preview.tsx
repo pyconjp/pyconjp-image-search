@@ -1,25 +1,30 @@
 import { useCallback, useRef, useState } from "react";
 import { flickrUrlResize } from "../lib/flickr";
-import type { CropRect, SearchResult } from "../types";
+import type { CropRect, FaceInfo, SearchResult } from "../types";
 import { CropOverlay } from "./CropOverlay";
+import { FaceThumbnails } from "./FaceThumbnails";
 import { ThumbStrip } from "./ThumbStrip";
 
 interface Props {
   results: SearchResult[];
   selectedIndex: number | null;
+  faces: FaceInfo[];
   onSelect: (index: number) => void;
   onClose: () => void;
   onFindSimilar: (imageId: number) => void;
   onSearchCropped: (imageUrl: string, crop: CropRect) => void;
+  onFindSamePerson: (faceIndex: number) => void;
 }
 
 export function Preview({
   results,
   selectedIndex,
+  faces,
   onSelect,
   onClose,
   onFindSimilar,
   onSearchCropped,
+  onFindSamePerson,
 }: Props) {
   const imageRef = useRef<HTMLImageElement>(null);
   const [cropRect, setCropRect] = useState<CropRect | null>(null);
@@ -106,6 +111,14 @@ export function Preview({
           </a>
         )}
       </div>
+
+      {faces.length > 0 && (
+        <FaceThumbnails
+          imageUrl={previewUrl}
+          faces={faces}
+          onFaceClick={onFindSamePerson}
+        />
+      )}
 
       <div className="preview-actions">
         <button type="button" onClick={() => onFindSimilar(selected.id)}>

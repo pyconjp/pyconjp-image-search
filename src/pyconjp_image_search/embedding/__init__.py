@@ -210,9 +210,7 @@ def _cmd_face_generate(args: argparse.Namespace) -> None:
     all_images = get_all_image_ids(conn)
 
     if args.force:
-        conn.execute(
-            "DELETE FROM face_detections WHERE model_name = ?", [INSIGHTFACE_MODEL_NAME]
-        )
+        conn.execute("DELETE FROM face_detections WHERE model_name = ?", [INSIGHTFACE_MODEL_NAME])
         conn.execute(
             "DELETE FROM face_processed_images WHERE model_name = ?", [INSIGHTFACE_MODEL_NAME]
         )
@@ -258,9 +256,7 @@ def _cmd_face_generate(args: argparse.Namespace) -> None:
                 if detections:
                     insert_face_detections(conn, detections)
                     total_faces += len(detections)
-                mark_image_processed(
-                    conn, image_id, INSIGHTFACE_MODEL_NAME, len(detections)
-                )
+                mark_image_processed(conn, image_id, INSIGHTFACE_MODEL_NAME, len(detections))
             except Exception:
                 errors += 1
 

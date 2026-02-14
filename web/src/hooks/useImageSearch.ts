@@ -1,7 +1,11 @@
 import type { AsyncDuckDBConnection } from "@duckdb/duckdb-wasm";
 import { useCallback, useState } from "react";
 import type { CLIPEncoder } from "../lib/clip";
-import { getImageEmbedding, searchByEmbedding } from "../lib/search";
+import {
+  getImageEmbedding,
+  searchByEmbedding,
+  searchByFaceEmbedding,
+} from "../lib/search";
 import type { SearchResult } from "../types";
 
 const PAGE_SIZE = 20;
@@ -103,6 +107,30 @@ export function useImageSearch(
     [conn, selectedEvents],
   );
 
+  const searchByFace = useCallback(
+    async (faceEmbedding: number[], eventNames?: string[]) => {
+      if (!conn) return;
+      setIsSearching(true);
+      try {
+        const events = eventNames ?? selectedEvents;
+        const hits = await searchByFaceEmbedding(conn, faceEmbedding, {
+          limit: PAGE_SIZE * 2, // extra since we deduplicate
+          offset: 0,
+          eventNames: events.length > 0 ? events : undefined,
+        });
+        setResults(hits);
+        setCurrentEmbedding(null); // face embeddings don't support load-more
+        setOffset(0);
+        setHasMore(false);
+        setMessage(`Found ${hits.length} images with similar faces.`);
+        if (eventNames) setSelectedEvents(eventNames);
+      } finally {
+        setIsSearching(false);
+      }
+    },
+    [conn, selectedEvents],
+  );
+
   const loadMore = useCallback(async () => {
     if (!conn || !currentEmbedding) return;
     setIsSearching(true);
@@ -131,6 +159,7 @@ export function useImageSearch(
     searchByText,
     searchByImage,
     searchByStoredEmbedding,
+    searchByFace,
     loadMore,
   };
 }

@@ -5,6 +5,9 @@ interface Props {
   isSearching: boolean;
   disabled: boolean;
   sourceImageUrl: string | null;
+  activeFaceEmbedding: number[] | null;
+  onSearchAsImage: () => void;
+  onReSearchByFace: () => void;
 }
 
 export function ImageUpload({
@@ -12,6 +15,9 @@ export function ImageUpload({
   isSearching,
   disabled,
   sourceImageUrl,
+  activeFaceEmbedding,
+  onSearchAsImage,
+  onReSearchByFace,
 }: Props) {
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -70,8 +76,30 @@ export function ImageUpload({
       </div>
       {sourceImageUrl && (
         <div className="source-image-preview">
-          <span className="source-image-label">Query image:</span>
+          <span className="source-image-label">
+            {activeFaceEmbedding ? "Face query:" : "Query image:"}
+          </span>
           <img src={sourceImageUrl} alt="Search source" />
+          {activeFaceEmbedding && (
+            <div className="face-search-actions">
+              <button
+                type="button"
+                className="face-action-btn"
+                onClick={onSearchAsImage}
+                disabled={isSearching}
+              >
+                Find Similar Images
+              </button>
+              <button
+                type="button"
+                className="face-action-btn active"
+                onClick={onReSearchByFace}
+                disabled={isSearching}
+              >
+                Find Same Person
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>
