@@ -41,6 +41,34 @@ def main() -> None:
         help="Model to check status for (default: siglip)",
     )
 
+    # face-generate
+    face_gen_parser = subparsers.add_parser(
+        "face-generate", help="Detect faces and generate face embeddings"
+    )
+    face_gen_parser.add_argument(
+        "--device", default="cuda", help="Device: cuda or cpu (default: cuda)"
+    )
+    face_gen_parser.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        help="Max number of images to process (default: all)",
+    )
+    face_gen_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Re-process all images (delete existing face detections)",
+    )
+    face_gen_parser.add_argument(
+        "--commit-interval",
+        type=int,
+        default=100,
+        help="Commit to DB every N images (default: 100)",
+    )
+
+    # face-status
+    subparsers.add_parser("face-status", help="Show face detection status")
+
     args = parser.parse_args()
 
     if args.command is None:
@@ -51,6 +79,10 @@ def main() -> None:
         _cmd_status(args)
     elif args.command == "generate":
         _cmd_generate(args)
+    elif args.command == "face-generate":
+        _cmd_face_generate(args)
+    elif args.command == "face-status":
+        _cmd_face_status()
 
 
 def _resolve_model_config(model_choice: str) -> tuple[str, str]:
@@ -157,3 +189,109 @@ def _cmd_generate(args: argparse.Namespace) -> None:
 
     conn.close()
     print(f"Done. Embedded {len(unembedded)} images.")
+
+
+def _cmd_face_generate(args: argparse.Namespace) -> None:
+    """Detect faces and generate face embeddings for all images."""
+    from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn
+
+    from pyconjp_image_search.config import CLIP_DB_PATH, DATA_DIR, INSIGHTFACE_MODEL_NAME
+    from pyconjp_image_search.db import get_connection
+    from pyconjp_image_search.embedding.face_repository import (
+        get_face_processed_image_ids,
+        insert_face_detections,
+        mark_image_processed,
+    )
+    from pyconjp_image_search.embedding.insightface_embedder import InsightFaceEmbedder
+    from pyconjp_image_search.embedding.repository import get_all_image_ids
+
+    conn = get_connection(str(CLIP_DB_PATH))
+
+    all_images = get_all_image_ids(conn)
+
+    if args.force:
+        conn.execute(
+            "DELETE FROM face_detections WHERE model_name = ?", [INSIGHTFACE_MODEL_NAME]
+        )
+        conn.execute(
+            "DELETE FROM face_processed_images WHERE model_name = ?", [INSIGHTFACE_MODEL_NAME]
+        )
+        conn.commit()
+        pending = all_images
+        print(f"Force mode: re-processing all {len(pending)} images.")
+    else:
+        processed = get_face_processed_image_ids(conn, INSIGHTFACE_MODEL_NAME)
+        pending = [(img_id, path) for img_id, path in all_images if img_id not in processed]
+        if not pending:
+            print("All images already have face detections.")
+            conn.close()
+            return
+
+    if args.limit is not None:
+        pending = pending[: args.limit]
+
+    print(f"Found {len(pending)} images to process.")
+    print(f"Loading InsightFace model on {args.device}...")
+
+    embedder = InsightFaceEmbedder(device=args.device)
+    commit_interval = args.commit_interval
+    total_faces = 0
+    errors = 0
+
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[bold blue]{task.description}"),
+        BarColumn(),
+        TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+        TextColumn("{task.completed}/{task.total}"),
+    ) as progress:
+        task = progress.add_task("Detecting faces", total=len(pending))
+
+        for idx, (image_id, relative_path) in enumerate(pending):
+            image_path = DATA_DIR / relative_path
+            if not image_path.exists():
+                progress.advance(task)
+                continue
+
+            try:
+                detections = embedder.detect_faces(image_path, image_id)
+                if detections:
+                    insert_face_detections(conn, detections)
+                    total_faces += len(detections)
+                mark_image_processed(
+                    conn, image_id, INSIGHTFACE_MODEL_NAME, len(detections)
+                )
+            except Exception:
+                errors += 1
+
+            if (idx + 1) % commit_interval == 0:
+                conn.commit()
+
+            progress.advance(task)
+
+    conn.commit()
+    conn.close()
+    print("\nDone.")
+    print(f"  Images processed: {len(pending)}")
+    print(f"  Faces detected: {total_faces}")
+    if errors > 0:
+        print(f"  Errors: {errors}")
+
+
+def _cmd_face_status() -> None:
+    """Show face detection status."""
+    from pyconjp_image_search.config import CLIP_DB_PATH, INSIGHTFACE_MODEL_NAME
+    from pyconjp_image_search.db import get_connection
+    from pyconjp_image_search.embedding.face_repository import get_face_stats
+
+    conn = get_connection(str(CLIP_DB_PATH))
+    total, processed, faces = get_face_stats(conn, INSIGHTFACE_MODEL_NAME)
+    conn.close()
+    print(f"Model: {INSIGHTFACE_MODEL_NAME}")
+    print(f"DB: {CLIP_DB_PATH}")
+    print(f"Processed: {processed}/{total} images")
+    print(f"Faces detected: {faces}")
+    if processed > 0:
+        print(f"Average faces per image: {faces / processed:.1f}")
+    if total > 0:
+        print(f"Progress: {processed / total * 100:.1f}%")

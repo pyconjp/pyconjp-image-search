@@ -26,3 +26,7 @@ EMBEDDING_IMAGE_SIZE = 224
 CLIP_MODEL_NAME = "openai/clip-vit-large-patch14"
 CLIP_DB_PATH = PROJECT_ROOT / "pyconjp_image_search_clip.duckdb"
 CLIP_EMBEDDING_DIM = 768
+
+# Face detection – InsightFace
+INSIGHTFACE_MODEL_NAME = "insightface/buffalo_l"
+FACE_EMBEDDING_DIM = 512

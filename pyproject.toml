@@ -8,6 +8,7 @@ dependencies = [
     "duckdb>=1.2",
     "gradio>=5.0",
     "httpx>=0.28",
+    "insightface>=0.7",
     "numpy>=1.26",
     "pillow>=11.0",
     "protobuf>=5.0",

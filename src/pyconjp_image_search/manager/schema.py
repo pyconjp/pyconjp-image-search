@@ -42,6 +42,43 @@ def ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
     """)
     conn.execute("CREATE INDEX IF NOT EXISTS idx_embeddings_model ON image_embeddings(model_name)")
 
+    # face_detections table (1:N relationship with images)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS face_detections (
+            face_id      VARCHAR PRIMARY KEY,
+            image_id     INTEGER NOT NULL,
+            model_name   VARCHAR NOT NULL,
+            bbox_x1      FLOAT NOT NULL,
+            bbox_y1      FLOAT NOT NULL,
+            bbox_x2      FLOAT NOT NULL,
+            bbox_y2      FLOAT NOT NULL,
+            det_score    FLOAT NOT NULL,
+            landmark     JSON,
+            age          INTEGER,
+            gender       VARCHAR,
+            embedding    FLOAT[512],
+            person_label VARCHAR,
+            cluster_id   INTEGER,
+            created_at   TIMESTAMP DEFAULT current_timestamp,
+            FOREIGN KEY (image_id) REFERENCES images(id)
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_face_image_id ON face_detections(image_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_face_model ON face_detections(model_name)")
+
+    # face_processed_images table (tracks which images have been scanned,
+    # including those with zero faces detected)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS face_processed_images (
+            image_id    INTEGER NOT NULL,
+            model_name  VARCHAR NOT NULL,
+            face_count  INTEGER NOT NULL DEFAULT 0,
+            processed_at TIMESTAMP DEFAULT current_timestamp,
+            PRIMARY KEY (image_id, model_name),
+            FOREIGN KEY (image_id) REFERENCES images(id)
+        )
+    """)
+
     # Migration for existing databases
     _migrate(conn)
 
