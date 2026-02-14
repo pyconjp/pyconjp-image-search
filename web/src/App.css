@@ -130,6 +130,28 @@ body {
   border-color: #1a1a2e;
 }
 
+.translate-button {
+  padding: 10px 16px;
+  border: 2px solid #1a1a2e;
+  border-radius: 8px;
+  background: #fff;
+  color: #1a1a2e;
+  font-size: 1rem;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.2s;
+}
+
+.translate-button:hover:not(:disabled) {
+  background: #1a1a2e;
+  color: #fff;
+}
+
+.translate-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .search-button {
   padding: 10px 24px;
   border: none;
