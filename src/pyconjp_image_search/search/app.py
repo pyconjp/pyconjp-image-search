@@ -572,7 +572,9 @@ def create_app() -> gr.Blocks:
                 text_embedding_state = gr.State(None)
                 text_selected_index_state = gr.State(None)
 
-                def do_text_search(query: str, selected_events: list[str], model_choice: str) -> tuple:
+                def do_text_search(
+                    query: str, selected_events: list[str], model_choice: str
+                ) -> tuple:
                     if not query.strip():
                         return (
                             [],
@@ -1005,7 +1007,12 @@ def create_app() -> gr.Blocks:
 
         text_find_similar_btn.click(
             fn=_do_find_similar,
-            inputs=[text_selected_index_state, text_metadata_state, text_event_filter, model_selector],
+            inputs=[
+                text_selected_index_state,
+                text_metadata_state,
+                text_event_filter,
+                model_selector,
+            ],
             outputs=_find_similar_outputs,
         ).then(
             fn=_on_close_preview,
@@ -1013,7 +1020,12 @@ def create_app() -> gr.Blocks:
         )
         img_find_similar_btn.click(
             fn=_do_find_similar,
-            inputs=[image_selected_index_state, image_metadata_state, image_event_filter, model_selector],
+            inputs=[
+                image_selected_index_state,
+                image_metadata_state,
+                image_event_filter,
+                model_selector,
+            ],
             outputs=_find_similar_outputs,
         ).then(
             fn=_on_close_preview,

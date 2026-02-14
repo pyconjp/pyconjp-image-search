@@ -26,7 +26,8 @@ def main() -> None:
     """)
 
     row = target.execute("SELECT COUNT(*) FROM images").fetchone()
-    print(f"CLIP DB now has {row[0]} images at {CLIP_DB_PATH}")
+    count = row[0] if row else 0
+    print(f"CLIP DB now has {count} images at {CLIP_DB_PATH}")
 
     target.execute("DETACH source")
     target.close()

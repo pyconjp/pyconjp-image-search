@@ -31,7 +31,7 @@ class CLIPEmbedder:
     def embed_images(self, image_paths: list[Path]) -> np.ndarray:
         """Embed a batch of images. Returns L2-normalized projected vectors (768-dim)."""
         images = [Image.open(p).convert("RGB") for p in image_paths]
-        inputs = self.processor(images=images, return_tensors="pt")
+        inputs = self.processor(images=images, return_tensors="pt")  # type: ignore[operator]
         inputs = {k: v.to(self.device) for k, v in inputs.items()}
         with torch.no_grad():
             # Explicitly run vision_model + visual_projection to get 768-dim
@@ -45,12 +45,15 @@ class CLIPEmbedder:
 
     def embed_text(self, text: str) -> np.ndarray:
         """Embed a single text query. Returns L2-normalized projected vector (1, 768)."""
-        inputs = self.processor(text=[text], return_tensors="pt", padding=True, truncation=True)
+        proc_kwargs = dict(text=[text], return_tensors="pt", padding=True, truncation=True)
+        inputs = self.processor(**proc_kwargs)  # type: ignore[operator]
         inputs = {k: v.to(self.device) for k, v in inputs.items()}
         with torch.no_grad():
             # Explicitly run text_model + text_projection to guarantee
             # 768-dim projected features matching JS CLIPTextModelWithProjection.
-            text_out = self.model.text_model(input_ids=inputs["input_ids"], attention_mask=inputs["attention_mask"])
+            text_out = self.model.text_model(
+                input_ids=inputs["input_ids"], attention_mask=inputs["attention_mask"]
+            )
             projected = self.model.text_projection(text_out.pooler_output)
         embedding = projected.cpu().numpy()
         return self._normalize(embedding).astype(np.float32)
