@@ -34,6 +34,11 @@ def show_events(conn: duckdb.DuckDBPyConnection) -> None:
         print(f"  {name:50s} year={year}  count={cnt}")
 
 
+def _fetchone_scalar(conn: duckdb.DuckDBPyConnection, sql: str) -> int:
+    row = conn.execute(sql).fetchone()
+    return int(row[0]) if row else 0
+
+
 def apply_fixes(db_path: str, *, dry_run: bool) -> None:
     label = "DRY RUN" if dry_run else "APPLY"
     print(f"\n{'='*60}")
@@ -48,36 +53,46 @@ def apply_fixes(db_path: str, *, dry_run: bool) -> None:
     if dry_run:
         for old_name, new_name, new_year in FIXES:
             if new_year is not None:
-                sql = "UPDATE images SET event_name = ?, event_year = ? WHERE event_name = ?"
+                sql = ("UPDATE images SET event_name = ?, "
+                       "event_year = ? WHERE event_name = ?")
                 params = [new_name, new_year, old_name]
             else:
-                sql = "UPDATE images SET event_name = ? WHERE event_name = ?"
+                sql = ("UPDATE images SET event_name = ? "
+                       "WHERE event_name = ?")
                 params = [new_name, old_name]
             print(f"  [DRY RUN] {sql}  params={params}")
     else:
-        # Temporarily drop FK constraint by backing up and recreating image_embeddings
-        has_embeddings = conn.execute(
-            "SELECT COUNT(*) FROM image_embeddings"
-        ).fetchone()[0] > 0
+        # Temporarily drop FK constraint by backing up
+        # and recreating image_embeddings
+        has_embeddings = _fetchone_scalar(
+            conn, "SELECT COUNT(*) FROM image_embeddings"
+        ) > 0
 
         print("  Backing up image_embeddings...")
-        conn.execute("CREATE TEMPORARY TABLE _emb_backup AS SELECT * FROM image_embeddings")
+        conn.execute(
+            "CREATE TEMPORARY TABLE _emb_backup "
+            "AS SELECT * FROM image_embeddings"
+        )
         conn.execute("DROP TABLE image_embeddings")
 
         # Now we can UPDATE images freely
         for old_name, new_name, new_year in FIXES:
             if new_year is not None:
-                cnt = conn.execute(
-                    "UPDATE images SET event_name = ?, event_year = ? WHERE event_name = ?",
+                row = conn.execute(
+                    "UPDATE images SET event_name = ?, "
+                    "event_year = ? WHERE event_name = ?",
                     [new_name, new_year, old_name],
-                ).fetchone()[0]
+                ).fetchone()
             else:
-                cnt = conn.execute(
-                    "UPDATE images SET event_name = ? WHERE event_name = ?",
+                row = conn.execute(
+                    "UPDATE images SET event_name = ? "
+                    "WHERE event_name = ?",
                     [new_name, old_name],
-                ).fetchone()[0]
+                ).fetchone()
+            cnt = int(row[0]) if row else 0
+            suffix = f" (year={new_year})" if new_year is not None else ""
             print(f"  Updated {cnt} rows: '{old_name}' -> '{new_name}'"
-                  + (f" (year={new_year})" if new_year is not None else ""))
+                  + suffix)
 
         # Restore image_embeddings with FK
         print("  Restoring image_embeddings...")
@@ -91,12 +106,21 @@ def apply_fixes(db_path: str, *, dry_run: bool) -> None:
                 FOREIGN KEY (image_id) REFERENCES images(id)
             )
         """)
-        conn.execute("INSERT INTO image_embeddings SELECT * FROM _emb_backup")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_embeddings_model ON image_embeddings(model_name)")
+        conn.execute(
+            "INSERT INTO image_embeddings "
+            "SELECT * FROM _emb_backup"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_embeddings_model "
+            "ON image_embeddings(model_name)"
+        )
         conn.execute("DROP TABLE _emb_backup")
 
-        restored = conn.execute("SELECT COUNT(*) FROM image_embeddings").fetchone()[0]
-        print(f"  Restored {restored} embeddings (had_data={has_embeddings})")
+        restored = _fetchone_scalar(
+            conn, "SELECT COUNT(*) FROM image_embeddings"
+        )
+        print(f"  Restored {restored} embeddings"
+              f" (had_data={has_embeddings})")
 
         print("\n--- After ---")
         show_events(conn)
