@@ -1,6 +1,6 @@
-import { useRef, useState, useCallback } from "react";
-import type { SearchResult, CropRect } from "../types";
+import { useCallback, useRef, useState } from "react";
 import { flickrUrlResize } from "../lib/flickr";
+import type { CropRect, SearchResult } from "../types";
 import { CropOverlay } from "./CropOverlay";
 import { ThumbStrip } from "./ThumbStrip";
 
@@ -26,6 +26,10 @@ export function Preview({
 
   const hasCrop = cropRect !== null;
 
+  const handleCropChange = useCallback((crop: CropRect | null) => {
+    setCropRect(crop);
+  }, []);
+
   const selected = selectedIndex !== null ? results[selectedIndex] : null;
   if (!selected) return null;
 
@@ -48,8 +52,8 @@ export function Preview({
       canvas.width = cropRect.w;
       canvas.height = cropRect.h;
       canvas
-        .getContext("2d")!
-        .drawImage(
+        .getContext("2d")
+        ?.drawImage(
           corsImg,
           cropRect.x,
           cropRect.y,
@@ -60,8 +64,11 @@ export function Preview({
           cropRect.w,
           cropRect.h,
         );
-      const blob = await new Promise<Blob>((r) =>
-        canvas.toBlob((b) => r(b!), "image/png"),
+      const blob = await new Promise<Blob>((resolve, reject) =>
+        canvas.toBlob(
+          (b) => (b ? resolve(b) : reject(new Error("toBlob failed"))),
+          "image/png",
+        ),
       );
       await navigator.clipboard.write([
         new ClipboardItem({ "image/png": blob }),
@@ -76,10 +83,6 @@ export function Preview({
     if (!cropRect) return;
     onSearchCropped(previewUrl, cropRect);
   };
-
-  const handleCropChange = useCallback((crop: CropRect | null) => {
-    setCropRect(crop);
-  }, []);
 
   return (
     <div className="preview-section">
@@ -105,16 +108,22 @@ export function Preview({
       </div>
 
       <div className="preview-actions">
-        <button onClick={() => onFindSimilar(selected.id)}>
+        <button type="button" onClick={() => onFindSimilar(selected.id)}>
           Find Similar
         </button>
-        <button onClick={handleSearchCropped} disabled={!hasCrop}>
+        <button type="button" onClick={handleSearchCropped} disabled={!hasCrop}>
           Search Cropped
         </button>
-        <button onClick={handleCopyToClipboard} disabled={!hasCrop}>
+        <button
+          type="button"
+          onClick={handleCopyToClipboard}
+          disabled={!hasCrop}
+        >
           Copy to Clipboard
         </button>
-        <button onClick={onClose}>Close</button>
+        <button type="button" onClick={onClose}>
+          Close
+        </button>
       </div>
 
       <ThumbStrip

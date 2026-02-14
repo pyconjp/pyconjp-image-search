@@ -1,8 +1,8 @@
-import { useState, useCallback } from "react";
 import type { AsyncDuckDBConnection } from "@duckdb/duckdb-wasm";
-import type { SearchResult } from "../types";
-import { searchByEmbedding, getImageEmbedding } from "../lib/search";
+import { useCallback, useState } from "react";
 import type { CLIPEncoder } from "../lib/clip";
+import { getImageEmbedding, searchByEmbedding } from "../lib/search";
+import type { SearchResult } from "../types";
 
 const PAGE_SIZE = 20;
 

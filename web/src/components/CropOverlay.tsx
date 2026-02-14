@@ -1,4 +1,4 @@
-import { useRef, useState, useEffect, useCallback } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { CropRect } from "../types";
 
 interface Props {
@@ -138,7 +138,11 @@ export function CropOverlay({ imageRef, onCropChange }: Props) {
         className="crop-overlay"
         onMouseDown={handleMouseDown}
       />
-      <div ref={selRef} className="crop-selection" style={{ display: "none" }} />
+      <div
+        ref={selRef}
+        className="crop-selection"
+        style={{ display: "none" }}
+      />
     </>
   );
 }

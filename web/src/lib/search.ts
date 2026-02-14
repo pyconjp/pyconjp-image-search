@@ -16,9 +16,7 @@ export async function searchByEmbedding(
 
   let whereClause = `e.model_name = '${MODEL_NAME}'`;
   if (options.eventNames && options.eventNames.length > 0) {
-    const escaped = options.eventNames.map(
-      (n) => `'${n.replace(/'/g, "''")}'`,
-    );
+    const escaped = options.eventNames.map((n) => `'${n.replace(/'/g, "''")}'`);
     whereClause += ` AND i.event_name IN (${escaped.join(",")})`;
   }
 
@@ -43,9 +41,7 @@ export async function searchByEmbedding(
     event_name: String(row.event_name),
     event_year: Number(row.event_year),
     album_title: row.album_title ? String(row.album_title) : null,
-    flickr_photo_id: row.flickr_photo_id
-      ? String(row.flickr_photo_id)
-      : null,
+    flickr_photo_id: row.flickr_photo_id ? String(row.flickr_photo_id) : null,
     score: Number(row.score),
   }));
 }

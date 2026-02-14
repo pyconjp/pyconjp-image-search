@@ -1,4 +1,4 @@
-import { useRef, type ChangeEvent } from "react";
+import { type ChangeEvent, useRef } from "react";
 
 interface Props {
   onUpload: (blob: Blob) => void;

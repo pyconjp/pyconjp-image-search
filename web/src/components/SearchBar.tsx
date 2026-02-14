@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, type FormEvent } from "react";
+import { type FormEvent, useEffect, useRef, useState } from "react";
 
 interface Props {
   onSearch: (query: string) => void;
@@ -17,8 +17,7 @@ export function SearchBar({ onSearch, isSearching, disabled }: Props) {
   // Check if ja→en translation is available
   useEffect(() => {
     if (!hasTranslatorAPI) return;
-    Translator!
-      .availability({ sourceLanguage: "ja", targetLanguage: "en" })
+    Translator?.availability({ sourceLanguage: "ja", targetLanguage: "en" })
       .then((status) => {
         setTranslatorAvailable(
           status === "available" || status === "downloadable",
@@ -39,10 +38,11 @@ export function SearchBar({ onSearch, isSearching, disabled }: Props) {
     setIsTranslating(true);
     try {
       if (!translatorRef.current) {
-        translatorRef.current = await Translator!.create({
-          sourceLanguage: "ja",
-          targetLanguage: "en",
-        });
+        translatorRef.current =
+          (await Translator?.create({
+            sourceLanguage: "ja",
+            targetLanguage: "en",
+          })) ?? null;
       }
       const translated = await translatorRef.current.translate(query.trim());
       setQuery(translated);

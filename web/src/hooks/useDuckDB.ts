@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
 import type { AsyncDuckDBConnection } from "@duckdb/duckdb-wasm";
+import { useEffect, useState } from "react";
 import { initDuckDB } from "../lib/duckdb";
 
 export function useDuckDB() {

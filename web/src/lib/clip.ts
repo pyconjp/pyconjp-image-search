@@ -1,11 +1,11 @@
 import {
+  AutoProcessor,
   AutoTokenizer,
   CLIPTextModelWithProjection,
-  AutoProcessor,
   CLIPVisionModelWithProjection,
-  RawImage,
   type PreTrainedTokenizer,
   type Processor,
+  RawImage,
 } from "@huggingface/transformers";
 
 const MODEL_ID = "Xenova/clip-vit-large-patch14";
@@ -27,9 +27,7 @@ export class CLIPEncoder {
   private visionModel: CLIPVisionModelWithProjection | null = null;
 
   /** Load the text encoder (tokenizer + text model). */
-  async loadTextModel(
-    onProgress?: (progress: number) => void,
-  ): Promise<void> {
+  async loadTextModel(onProgress?: (progress: number) => void): Promise<void> {
     if (this.tokenizer && this.textModel) return;
     const progressCallback = onProgress
       ? (p: Record<string, unknown>) => {
@@ -95,9 +93,7 @@ export class CLIPEncoder {
 
   async encodeImage(imageBlob: Blob): Promise<Float32Array> {
     if (!this.processor || !this.visionModel) {
-      throw new Error(
-        "Vision model not loaded. Call loadVisionModel() first.",
-      );
+      throw new Error("Vision model not loaded. Call loadVisionModel() first.");
     }
     const image = await RawImage.fromBlob(imageBlob);
     const inputs = await this.processor(image);

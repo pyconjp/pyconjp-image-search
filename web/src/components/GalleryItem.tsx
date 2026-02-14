@@ -1,5 +1,5 @@
-import type { SearchResult } from "../types";
 import { flickrUrlResize } from "../lib/flickr";
+import type { SearchResult } from "../types";
 
 interface Props {
   result: SearchResult;

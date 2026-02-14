@@ -10,6 +10,7 @@ export function LoadMoreButton({ onClick, isLoading, visible }: Props) {
   return (
     <div className="load-more">
       <button
+        type="button"
         onClick={onClick}
         disabled={isLoading}
         className="load-more-button"

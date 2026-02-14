@@ -1,23 +1,23 @@
-import { useState, useEffect, useCallback } from "react";
-import { useDuckDB } from "./hooks/useDuckDB";
-import { useCLIPEncoder } from "./hooks/useCLIPEncoder";
-import { useImageSearch } from "./hooks/useImageSearch";
-import { getEventNames } from "./lib/search";
-import { flickrUrlResize } from "./lib/flickr";
-import type { CropRect } from "./types";
-import { LoadingOverlay } from "./components/LoadingOverlay";
-import { SearchBar } from "./components/SearchBar";
+import { useCallback, useEffect, useState } from "react";
 import { EventFilter } from "./components/EventFilter";
-import { ImageUpload } from "./components/ImageUpload";
 import { Gallery } from "./components/Gallery";
-import { Preview } from "./components/Preview";
+import { ImageUpload } from "./components/ImageUpload";
+import { LoadingOverlay } from "./components/LoadingOverlay";
 import { LoadMoreButton } from "./components/LoadMoreButton";
+import { Preview } from "./components/Preview";
+import { SearchBar } from "./components/SearchBar";
+import { useCLIPEncoder } from "./hooks/useCLIPEncoder";
+import { useDuckDB } from "./hooks/useDuckDB";
+import { useImageSearch } from "./hooks/useImageSearch";
+import { flickrUrlResize } from "./lib/flickr";
+import { getEventNames } from "./lib/search";
+import type { CropRect } from "./types";
 import "./App.css";
 
 type SearchMode = "text" | "image";
 
 function revokeIfBlobUrl(url: string | null) {
-  if (url && url.startsWith("blob:")) URL.revokeObjectURL(url);
+  if (url?.startsWith("blob:")) URL.revokeObjectURL(url);
 }
 
 export default function App() {
@@ -114,8 +114,8 @@ export default function App() {
       canvas.width = crop.w;
       canvas.height = crop.h;
       canvas
-        .getContext("2d")!
-        .drawImage(
+        .getContext("2d")
+        ?.drawImage(
           corsImg,
           crop.x,
           crop.y,
@@ -126,8 +126,11 @@ export default function App() {
           crop.w,
           crop.h,
         );
-      const blob = await new Promise<Blob>((r) =>
-        canvas.toBlob((b) => r(b!), "image/png"),
+      const blob = await new Promise<Blob>((resolve, reject) =>
+        canvas.toBlob(
+          (b) => (b ? resolve(b) : reject(new Error("toBlob failed"))),
+          "image/png",
+        ),
       );
 
       // Show cropped image as source
@@ -203,12 +206,14 @@ export default function App() {
       <div className="search-controls">
         <div className="mode-toggle">
           <button
+            type="button"
             className={searchMode === "text" ? "active" : ""}
             onClick={() => setSearchMode("text")}
           >
             Text Search
           </button>
           <button
+            type="button"
             className={searchMode === "image" ? "active" : ""}
             onClick={() => setSearchMode("image")}
           >
