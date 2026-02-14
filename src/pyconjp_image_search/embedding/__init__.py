@@ -1,4 +1,4 @@
-"""Embedding CLI: generate and manage SigLIP embeddings."""
+"""Embedding CLI: generate and manage embeddings."""
 
 import argparse
 
@@ -16,8 +16,9 @@ def main() -> None:
     gen_parser.add_argument("--device", default="cuda", help="Device: cuda or cpu (default: cuda)")
     gen_parser.add_argument(
         "--model",
-        default=None,
-        help="Model name (default: google/siglip-base-patch16-224)",
+        choices=["siglip", "clip"],
+        default="siglip",
+        help="Model to use: siglip or clip (default: siglip)",
     )
     gen_parser.add_argument(
         "--limit",
@@ -25,9 +26,20 @@ def main() -> None:
         default=None,
         help="Max number of images to embed (default: all)",
     )
+    gen_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Re-generate all embeddings (overwrite existing)",
+    )
 
     # status
-    subparsers.add_parser("status", help="Show embedding generation status")
+    status_parser = subparsers.add_parser("status", help="Show embedding generation status")
+    status_parser.add_argument(
+        "--model",
+        choices=["siglip", "clip"],
+        default="siglip",
+        help="Model to check status for (default: siglip)",
+    )
 
     args = parser.parse_args()
 
@@ -36,21 +48,36 @@ def main() -> None:
         return
 
     if args.command == "status":
-        _cmd_status()
+        _cmd_status(args)
     elif args.command == "generate":
         _cmd_generate(args)
 
 
-def _cmd_status() -> None:
+def _resolve_model_config(model_choice: str) -> tuple[str, str]:
+    """Return (model_name, db_path) for the chosen model."""
+    from pyconjp_image_search.config import (
+        CLIP_DB_PATH,
+        CLIP_MODEL_NAME,
+        DB_PATH,
+        SIGLIP_MODEL_NAME,
+    )
+
+    if model_choice == "clip":
+        return CLIP_MODEL_NAME, str(CLIP_DB_PATH)
+    return SIGLIP_MODEL_NAME, str(DB_PATH)
+
+
+def _cmd_status(args: argparse.Namespace) -> None:
     """Show embedding generation status."""
-    from pyconjp_image_search.config import SIGLIP_MODEL_NAME
     from pyconjp_image_search.db import get_connection
     from pyconjp_image_search.embedding.repository import get_embedding_stats
 
-    conn = get_connection()
-    total, embedded = get_embedding_stats(conn, SIGLIP_MODEL_NAME)
+    model_name, db_path = _resolve_model_config(args.model)
+    conn = get_connection(db_path)
+    total, embedded = get_embedding_stats(conn, model_name)
     conn.close()
-    print(f"Model: {SIGLIP_MODEL_NAME}")
+    print(f"Model: {model_name}")
+    print(f"DB: {db_path}")
     print(f"Embedded: {embedded}/{total} images")
     if total > 0:
         print(f"Progress: {embedded / total * 100:.1f}%")
@@ -62,29 +89,41 @@ def _cmd_generate(args: argparse.Namespace) -> None:
 
     from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn
 
-    from pyconjp_image_search.config import DATA_DIR, SIGLIP_MODEL_NAME
+    from pyconjp_image_search.config import DATA_DIR
     from pyconjp_image_search.db import get_connection
     from pyconjp_image_search.embedding.repository import (
+        get_all_image_ids,
         get_unembedded_image_ids,
         insert_embeddings,
     )
-    from pyconjp_image_search.embedding.siglip import SigLIPEmbedder
 
-    model_name = args.model or SIGLIP_MODEL_NAME
-    conn = get_connection()
+    model_name, db_path = _resolve_model_config(args.model)
+    conn = get_connection(db_path)
 
-    unembedded = get_unembedded_image_ids(conn, model_name)
-    if not unembedded:
-        print("All images already have embeddings.")
-        conn.close()
-        return
+    if args.force:
+        unembedded = get_all_image_ids(conn)
+        print(f"Force mode: re-generating all {len(unembedded)} embeddings.")
+    else:
+        unembedded = get_unembedded_image_ids(conn, model_name)
+        if not unembedded:
+            print("All images already have embeddings.")
+            conn.close()
+            return
 
     if args.limit is not None:
         unembedded = unembedded[: args.limit]
 
     print(f"Found {len(unembedded)} images to embed.")
     print(f"Loading model: {model_name} on {args.device}...")
-    embedder = SigLIPEmbedder(model_name=model_name, device=args.device)
+
+    if args.model == "clip":
+        from pyconjp_image_search.embedding.clip import CLIPEmbedder
+
+        embedder = CLIPEmbedder(model_name=model_name, device=args.device)
+    else:
+        from pyconjp_image_search.embedding.siglip import SigLIPEmbedder
+
+        embedder = SigLIPEmbedder(model_name=model_name, device=args.device)
 
     batch_size = args.batch_size
 
