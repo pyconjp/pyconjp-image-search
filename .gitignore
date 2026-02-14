@@ -27,3 +27,4 @@ data/
 
 node_modules/
 web/node_modules/
+web/.vite/
