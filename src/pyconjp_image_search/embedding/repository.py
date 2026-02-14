@@ -20,10 +20,25 @@ def insert_embeddings(
             """
             INSERT INTO image_embeddings (image_id, model_name, embedding)
             VALUES (?, ?, ?)
-            ON CONFLICT (image_id, model_name) DO NOTHING
+            ON CONFLICT (image_id, model_name) DO UPDATE SET embedding = EXCLUDED.embedding
             """,
             [image_id, model_name, vec],
         )
+
+
+def get_all_image_ids(
+    conn: duckdb.DuckDBPyConnection,
+) -> list[tuple[int, str]]:
+    """Return (image_id, relative_path) pairs for all images."""
+    rows = conn.execute(
+        """
+        SELECT id, relative_path
+        FROM images
+        WHERE relative_path IS NOT NULL
+        ORDER BY id
+        """,
+    ).fetchall()
+    return [(row[0], row[1]) for row in rows]
 
 
 def get_unembedded_image_ids(

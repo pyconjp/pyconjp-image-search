@@ -11,7 +11,12 @@ import gradio as gr
 import numpy as np
 from PIL import Image
 
-from pyconjp_image_search.config import FLICKR_USER_ID, SIGLIP_MODEL_NAME
+from pyconjp_image_search.config import (
+    CLIP_DB_PATH,
+    CLIP_MODEL_NAME,
+    FLICKR_USER_ID,
+    SIGLIP_MODEL_NAME,
+)
 from pyconjp_image_search.db import get_connection
 from pyconjp_image_search.models import ImageMetadata
 from pyconjp_image_search.search.query import (
@@ -297,21 +302,38 @@ CROP_TO_JSON_JS = """
 """
 
 
+_MODEL_CHOICES = ["SigLIP", "CLIP-L"]
+
+
 def create_app() -> gr.Blocks:
     """Create and return the Gradio Blocks app."""
-    conn = get_connection()
+    conn_siglip = get_connection()
+    conn_clip = get_connection(str(CLIP_DB_PATH))
 
-    event_names = get_event_names(conn)
+    event_names = get_event_names(conn_siglip)
 
-    # Lazy-loaded embedder
+    # Lazy-loaded embedders (keyed by model choice label)
     _embedder_cache: dict = {}
 
-    def _get_embedder():
-        if "instance" not in _embedder_cache:
-            from pyconjp_image_search.embedding.siglip import SigLIPEmbedder
+    def _get_model_config(model_choice: str) -> tuple:
+        """Return (conn, model_name, embedder) for the chosen model."""
+        if model_choice == "CLIP-L":
+            conn = conn_clip
+            model_name = CLIP_MODEL_NAME
+            if "clip" not in _embedder_cache:
+                from pyconjp_image_search.embedding.clip import CLIPEmbedder
 
-            _embedder_cache["instance"] = SigLIPEmbedder(model_name=SIGLIP_MODEL_NAME)
-        return _embedder_cache["instance"]
+                _embedder_cache["clip"] = CLIPEmbedder(model_name=CLIP_MODEL_NAME)
+            embedder = _embedder_cache["clip"]
+        else:
+            conn = conn_siglip
+            model_name = SIGLIP_MODEL_NAME
+            if "siglip" not in _embedder_cache:
+                from pyconjp_image_search.embedding.siglip import SigLIPEmbedder
+
+                _embedder_cache["siglip"] = SigLIPEmbedder(model_name=SIGLIP_MODEL_NAME)
+            embedder = _embedder_cache["siglip"]
+        return conn, model_name, embedder
 
     def _make_gallery_items(
         results: list[tuple[ImageMetadata, float]],
@@ -392,17 +414,19 @@ def create_app() -> gr.Blocks:
         selected_index: int | None,
         metadata_list: list,
         selected_events: list[str],
+        model_choice: str,
     ) -> tuple:
         if selected_index is None or not metadata_list:
             return _noop_10
+        mc, model_name, _ = _get_model_config(model_choice)
         meta = metadata_list[selected_index]
-        emb = get_image_embedding(conn, meta.id, SIGLIP_MODEL_NAME)
+        emb = get_image_embedding(mc, meta.id, model_name)
         if emb is None:
             return _noop_10
         results = search_images_by_text(
-            conn,
+            mc,
             query_embedding=emb,
-            model_name=SIGLIP_MODEL_NAME,
+            model_name=model_name,
             limit=PAGE_SIZE,
             offset=0,
             event_names=selected_events or None,
@@ -427,6 +451,7 @@ def create_app() -> gr.Blocks:
     def _do_search_cropped(
         crop_json: str,
         selected_events: list[str],
+        model_choice: str,
     ) -> tuple:
         if not crop_json:
             return _noop_10
@@ -447,12 +472,12 @@ def create_app() -> gr.Blocks:
         tmp.close()
         image_path = Path(tmp.name)
 
-        embedder = _get_embedder()
+        mc, model_name, embedder = _get_model_config(model_choice)
         query_emb = embedder.embed_images([image_path])
         results = search_images_by_text(
-            conn,
+            mc,
             query_embedding=query_emb,
-            model_name=SIGLIP_MODEL_NAME,
+            model_name=model_name,
             limit=PAGE_SIZE,
             offset=0,
             event_names=selected_events or None,
@@ -477,6 +502,13 @@ def create_app() -> gr.Blocks:
 
     with gr.Blocks(title="PyCon JP Image Search", css=CUSTOM_CSS, head=CROP_TOOL_SCRIPT) as app:
         gr.Markdown("# PyCon JP Image Search")
+
+        model_selector = gr.Radio(
+            choices=_MODEL_CHOICES,
+            value="SigLIP",
+            label="Embedding Model",
+            interactive=True,
+        )
 
         with gr.Tabs() as tabs:
             # ── Tab 1: Text Search ───────────────────────────────────
@@ -540,7 +572,7 @@ def create_app() -> gr.Blocks:
                 text_embedding_state = gr.State(None)
                 text_selected_index_state = gr.State(None)
 
-                def do_text_search(query: str, selected_events: list[str]) -> tuple:
+                def do_text_search(query: str, selected_events: list[str], model_choice: str) -> tuple:
                     if not query.strip():
                         return (
                             [],
@@ -551,12 +583,12 @@ def create_app() -> gr.Blocks:
                             None,
                             gr.update(visible=False),
                         )
-                    embedder = _get_embedder()
+                    mc, model_name, embedder = _get_model_config(model_choice)
                     query_emb = embedder.embed_text(query)
                     results = search_images_by_text(
-                        conn,
+                        mc,
                         query_embedding=query_emb,
-                        model_name=SIGLIP_MODEL_NAME,
+                        model_name=model_name,
                         limit=PAGE_SIZE,
                         offset=0,
                         event_names=selected_events or None,
@@ -579,6 +611,7 @@ def create_app() -> gr.Blocks:
                     accumulated: list,
                     accumulated_meta: list,
                     query_emb_list,
+                    model_choice: str,
                 ) -> tuple:
                     if query_emb_list is None:
                         return (
@@ -589,11 +622,12 @@ def create_app() -> gr.Blocks:
                             accumulated_meta,
                             gr.update(visible=False),
                         )
+                    mc, model_name, _ = _get_model_config(model_choice)
                     query_emb = np.array(query_emb_list)
                     results = search_images_by_text(
-                        conn,
+                        mc,
                         query_embedding=query_emb,
-                        model_name=SIGLIP_MODEL_NAME,
+                        model_name=model_name,
                         limit=PAGE_SIZE,
                         offset=offset,
                         event_names=selected_events or None,
@@ -613,7 +647,7 @@ def create_app() -> gr.Blocks:
 
                 text_btn.click(
                     fn=do_text_search,
-                    inputs=[text_input, text_event_filter],
+                    inputs=[text_input, text_event_filter, model_selector],
                     outputs=[
                         text_gallery,
                         text_info,
@@ -643,6 +677,7 @@ def create_app() -> gr.Blocks:
                         text_results_state,
                         text_metadata_state,
                         text_embedding_state,
+                        model_selector,
                     ],
                     outputs=[
                         text_gallery,
@@ -755,6 +790,7 @@ def create_app() -> gr.Blocks:
                 def do_image_search(
                     image_path: str | None,
                     selected_events: list[str],
+                    model_choice: str,
                 ) -> tuple:
                     if image_path is None:
                         return (
@@ -766,12 +802,12 @@ def create_app() -> gr.Blocks:
                             None,
                             gr.update(visible=False),
                         )
-                    embedder = _get_embedder()
+                    mc, model_name, embedder = _get_model_config(model_choice)
                     query_emb = embedder.embed_images([Path(image_path)])
                     results = search_images_by_text(
-                        conn,
+                        mc,
                         query_embedding=query_emb,
-                        model_name=SIGLIP_MODEL_NAME,
+                        model_name=model_name,
                         limit=PAGE_SIZE,
                         offset=0,
                         event_names=selected_events or None,
@@ -794,6 +830,7 @@ def create_app() -> gr.Blocks:
                     accumulated: list,
                     accumulated_meta: list,
                     query_emb_list,
+                    model_choice: str,
                 ) -> tuple:
                     if query_emb_list is None:
                         return (
@@ -804,11 +841,12 @@ def create_app() -> gr.Blocks:
                             accumulated_meta,
                             gr.update(visible=False),
                         )
+                    mc, model_name, _ = _get_model_config(model_choice)
                     query_emb = np.array(query_emb_list)
                     results = search_images_by_text(
-                        conn,
+                        mc,
                         query_embedding=query_emb,
-                        model_name=SIGLIP_MODEL_NAME,
+                        model_name=model_name,
                         limit=PAGE_SIZE,
                         offset=offset,
                         event_names=selected_events or None,
@@ -828,7 +866,7 @@ def create_app() -> gr.Blocks:
 
                 image_btn.click(
                     fn=do_image_search,
-                    inputs=[image_input, image_event_filter],
+                    inputs=[image_input, image_event_filter, model_selector],
                     outputs=[
                         image_gallery,
                         image_info,
@@ -858,6 +896,7 @@ def create_app() -> gr.Blocks:
                         image_results_state,
                         image_metadata_state,
                         image_embedding_state,
+                        model_selector,
                     ],
                     outputs=[
                         image_gallery,
@@ -966,7 +1005,7 @@ def create_app() -> gr.Blocks:
 
         text_find_similar_btn.click(
             fn=_do_find_similar,
-            inputs=[text_selected_index_state, text_metadata_state, text_event_filter],
+            inputs=[text_selected_index_state, text_metadata_state, text_event_filter, model_selector],
             outputs=_find_similar_outputs,
         ).then(
             fn=_on_close_preview,
@@ -974,7 +1013,7 @@ def create_app() -> gr.Blocks:
         )
         img_find_similar_btn.click(
             fn=_do_find_similar,
-            inputs=[image_selected_index_state, image_metadata_state, image_event_filter],
+            inputs=[image_selected_index_state, image_metadata_state, image_event_filter, model_selector],
             outputs=_find_similar_outputs,
         ).then(
             fn=_on_close_preview,
@@ -988,7 +1027,7 @@ def create_app() -> gr.Blocks:
             outputs=[text_crop_data],
         ).then(
             fn=_do_search_cropped,
-            inputs=[text_crop_data, text_event_filter],
+            inputs=[text_crop_data, text_event_filter, model_selector],
             outputs=_find_similar_outputs,
         ).then(
             fn=_on_close_preview,
@@ -1000,7 +1039,7 @@ def create_app() -> gr.Blocks:
             outputs=[img_crop_data],
         ).then(
             fn=_do_search_cropped,
-            inputs=[img_crop_data, image_event_filter],
+            inputs=[img_crop_data, image_event_filter, model_selector],
             outputs=_find_similar_outputs,
         ).then(
             fn=_on_close_preview,
