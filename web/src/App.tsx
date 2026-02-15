@@ -357,7 +357,17 @@ export default function App() {
         let xOff = 0;
         for (const part of parts) {
           const scaledW = Math.round((part.width * targetH) / part.height);
-          ctx?.drawImage(part, 0, 0, part.width, part.height, xOff, 0, scaledW, targetH);
+          ctx?.drawImage(
+            part,
+            0,
+            0,
+            part.width,
+            part.height,
+            xOff,
+            0,
+            scaledW,
+            targetH,
+          );
           xOff += scaledW + gap;
         }
         const blob = await new Promise<Blob>((resolve, reject) =>
@@ -509,7 +519,9 @@ export default function App() {
           results={search.results}
           selectedIndex={selectedIndex}
           faces={faces}
-          hasActiveFaceQuery={activeFaceEmbeddings != null && activeFaceEmbeddings.length > 0}
+          hasActiveFaceQuery={
+            activeFaceEmbeddings != null && activeFaceEmbeddings.length > 0
+          }
           onSelect={setSelectedIndex}
           onClose={handleClosePreview}
           onFindSimilar={handleFindSimilar}

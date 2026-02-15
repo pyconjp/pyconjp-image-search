@@ -591,6 +591,8 @@ def create_app() -> gr.Blocks:
         # Deduplicate by image_id (keep highest score per image)
         seen: dict[int, tuple[ImageMetadata, float]] = {}
         for _face_det, meta, score in results:
+            if meta.id is None:
+                continue
             if meta.id not in seen or score > seen[meta.id][1]:
                 seen[meta.id] = (meta, score)
         deduped = list(seen.values())
@@ -632,6 +634,8 @@ def create_app() -> gr.Blocks:
         )
         seen: dict[int, tuple[ImageMetadata, float]] = {}
         for _face_det, meta, score in results:
+            if meta.id is None:
+                continue
             if meta.id not in seen or score > seen[meta.id][1]:
                 seen[meta.id] = (meta, score)
         deduped = list(seen.values())

@@ -35,6 +35,7 @@ export function Preview({
   const [selectedFaceIndices, setSelectedFaceIndices] = useState<number[]>([]);
 
   // Reset face selection when selected image changes
+  // biome-ignore lint/correctness/useExhaustiveDependencies: selectedIndex used as trigger
   useEffect(() => {
     setSelectedFaceIndices([]);
   }, [selectedIndex]);

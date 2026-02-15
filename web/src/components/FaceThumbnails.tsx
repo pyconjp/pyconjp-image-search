@@ -38,7 +38,7 @@ export function FaceThumbnails({
 
       // Scale factor: bbox coords are in original image pixels,
       // but the loaded image (_b size) may differ
-      const face0 = faces[0];
+      const face0 = faces[0]!;
       const scaleX = img.naturalWidth / face0.image_width;
       const scaleY = img.naturalHeight / face0.image_height;
 
@@ -88,17 +88,20 @@ export function FaceThumbnails({
   return (
     <div className="face-thumbnails">
       <span className="face-thumbnails-label">Faces:</span>
-      {cropUrls.map((url, i) => (
+      {cropUrls.map((url, i) => {
+        const face = faces[i]!;
+        return (
         <button
           type="button"
-          key={faces[i].face_id}
+          key={face.face_id}
           className={`face-thumb${selectedIndices.includes(i) ? " selected" : ""}`}
           onClick={() => onToggleFace(i)}
-          title={`Select face ${i + 1} (score: ${faces[i].det_score.toFixed(2)})`}
+          title={`Select face ${i + 1} (score: ${face.det_score.toFixed(2)})`}
         >
           <img src={url} alt={`Face ${i + 1}`} />
         </button>
-      ))}
+        );
+      })}
     </div>
   );
 }
