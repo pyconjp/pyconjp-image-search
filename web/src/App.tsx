@@ -37,8 +37,8 @@ export default function App() {
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
   const [sourceImageUrl, setSourceImageUrl] = useState<string | null>(null);
   const [faces, setFaces] = useState<FaceInfo[]>([]);
-  const [activeFaceEmbedding, setActiveFaceEmbedding] = useState<
-    number[] | null
+  const [activeFaceEmbeddings, setActiveFaceEmbeddings] = useState<
+    number[][] | null
   >(null);
 
   // Load event names once DB is ready
@@ -74,7 +74,7 @@ export default function App() {
   const handleTextSearch = useCallback(
     (query: string) => {
       setSelectedIndex(null);
-      setActiveFaceEmbedding(null);
+      setActiveFaceEmbeddings(null);
       setSourceImageUrl((prev) => {
         revokeIfBlobUrl(prev);
         return null;
@@ -87,7 +87,7 @@ export default function App() {
   const handleImageUpload = useCallback(
     async (blob: Blob) => {
       setSelectedIndex(null);
-      setActiveFaceEmbedding(null);
+      setActiveFaceEmbeddings(null);
       // Show preview of the source image
       const url = URL.createObjectURL(blob);
       setSourceImageUrl((prev) => {
@@ -122,7 +122,7 @@ export default function App() {
         setSearchMode("image");
       }
       setSelectedIndex(null);
-      setActiveFaceEmbedding(null);
+      setActiveFaceEmbeddings(null);
       search.searchByStoredEmbedding(imageId, search.selectedEvents);
     },
     [search],
@@ -172,20 +172,23 @@ export default function App() {
       });
 
       setSelectedIndex(null);
-      setActiveFaceEmbedding(null);
+      setActiveFaceEmbeddings(null);
       search.searchByImage(blob, search.selectedEvents);
     },
     [search, loadVisionModel],
   );
 
-  const handleFindSamePerson = useCallback(
-    async (faceIndex: number) => {
-      if (faceIndex >= faces.length || selectedIndex === null) return;
-      const face = faces[faceIndex];
+  const handleFindSamePersons = useCallback(
+    async (faceIndices: number[]) => {
+      if (faceIndices.length === 0 || selectedIndex === null) return;
+      const selectedFaces = faceIndices
+        .map((i) => faces[i])
+        .filter((f): f is FaceInfo => f != null);
+      if (selectedFaces.length === 0) return;
       const selected = search.results[selectedIndex];
       if (!selected) return;
 
-      // Create face crop from the preview image
+      // Create composite face crop of all selected faces for source image
       const previewUrl = flickrUrlResize(selected.image_url, "b");
       try {
         const corsImg = new Image();
@@ -195,31 +198,53 @@ export default function App() {
           corsImg.onerror = () => reject(new Error("Failed to load image"));
           corsImg.src = previewUrl;
         });
-        const scaleX = corsImg.naturalWidth / face.image_width;
-        const scaleY = corsImg.naturalHeight / face.image_height;
-        const [x1, y1, x2, y2] = face.bbox;
-        const fw = Math.round(x2 * scaleX) - Math.round(x1 * scaleX);
-        const fh = Math.round(y2 * scaleY) - Math.round(y1 * scaleY);
-        const padX = Math.round(fw * 0.1);
-        const padY = Math.round(fh * 0.1);
-        const cx1 = Math.max(0, Math.round(x1 * scaleX) - padX);
-        const cy1 = Math.max(0, Math.round(y1 * scaleY) - padY);
-        const cx2 = Math.min(
-          corsImg.naturalWidth,
-          Math.round(x2 * scaleX) + padX,
-        );
-        const cy2 = Math.min(
-          corsImg.naturalHeight,
-          Math.round(y2 * scaleY) + padY,
-        );
-        const cw = cx2 - cx1;
-        const ch = cy2 - cy1;
+        // Compute crop regions for all selected faces
+        const crops: { x: number; y: number; w: number; h: number }[] = [];
+        for (const face of selectedFaces) {
+          const sx = corsImg.naturalWidth / face.image_width;
+          const sy = corsImg.naturalHeight / face.image_height;
+          const [x1, y1, x2, y2] = face.bbox;
+          const fw = Math.round(x2 * sx) - Math.round(x1 * sx);
+          const fh = Math.round(y2 * sy) - Math.round(y1 * sy);
+          const padX = Math.round(fw * 0.1);
+          const padY = Math.round(fh * 0.1);
+          crops.push({
+            x: Math.max(0, Math.round(x1 * sx) - padX),
+            y: Math.max(0, Math.round(y1 * sy) - padY),
+            w:
+              Math.min(corsImg.naturalWidth, Math.round(x2 * sx) + padX) -
+              Math.max(0, Math.round(x1 * sx) - padX),
+            h:
+              Math.min(corsImg.naturalHeight, Math.round(y2 * sy) + padY) -
+              Math.max(0, Math.round(y1 * sy) - padY),
+          });
+        }
+        // Composite: arrange all face crops side by side, normalized to same height
+        const targetH = Math.max(...crops.map((c) => c.h));
+        const gap = 4;
+        const totalW =
+          crops.reduce((s, c) => s + Math.round((c.w * targetH) / c.h), 0) +
+          gap * (crops.length - 1);
         const canvas = document.createElement("canvas");
-        canvas.width = cw;
-        canvas.height = ch;
-        canvas
-          .getContext("2d")
-          ?.drawImage(corsImg, cx1, cy1, cw, ch, 0, 0, cw, ch);
+        canvas.width = totalW;
+        canvas.height = targetH;
+        const ctx = canvas.getContext("2d");
+        let xOff = 0;
+        for (const crop of crops) {
+          const scaledW = Math.round((crop.w * targetH) / crop.h);
+          ctx?.drawImage(
+            corsImg,
+            crop.x,
+            crop.y,
+            crop.w,
+            crop.h,
+            xOff,
+            0,
+            scaledW,
+            targetH,
+          );
+          xOff += scaledW + gap;
+        }
         const blob = await new Promise<Blob>((resolve, reject) =>
           canvas.toBlob(
             (b) => (b ? resolve(b) : reject(new Error("toBlob failed"))),
@@ -239,12 +264,124 @@ export default function App() {
         });
       }
 
-      setActiveFaceEmbedding(face.embedding);
+      const embeddings = selectedFaces.map((f) => f.embedding);
+      setActiveFaceEmbeddings(embeddings);
       setSelectedIndex(null);
       setSearchMode("image");
-      search.searchByFace(face.embedding, search.selectedEvents);
+      search.searchByFaces(embeddings, search.selectedEvents);
     },
     [faces, search, selectedIndex],
+  );
+
+  const handleAddFacesToQuery = useCallback(
+    async (faceIndices: number[]) => {
+      if (faceIndices.length === 0 || selectedIndex === null) return;
+      const newFaces = faceIndices
+        .map((i) => faces[i])
+        .filter((f): f is FaceInfo => f != null);
+      if (newFaces.length === 0) return;
+      const selected = search.results[selectedIndex];
+      if (!selected) return;
+
+      // Merge new embeddings with existing ones
+      const existingEmbeddings = activeFaceEmbeddings ?? [];
+      const mergedEmbeddings = [
+        ...existingEmbeddings,
+        ...newFaces.map((f) => f.embedding),
+      ];
+
+      // Build new composite source image: existing source + new face crops
+      try {
+        const previewUrl = flickrUrlResize(selected.image_url, "b");
+        const corsImg = new Image();
+        corsImg.crossOrigin = "anonymous";
+        await new Promise<void>((resolve, reject) => {
+          corsImg.onload = () => resolve();
+          corsImg.onerror = () => reject(new Error("Failed to load image"));
+          corsImg.src = previewUrl;
+        });
+
+        // Crop new faces
+        const newCropCanvases: HTMLCanvasElement[] = [];
+        for (const face of newFaces) {
+          const sx = corsImg.naturalWidth / face.image_width;
+          const sy = corsImg.naturalHeight / face.image_height;
+          const [x1, y1, x2, y2] = face.bbox;
+          const fw = Math.round(x2 * sx) - Math.round(x1 * sx);
+          const fh = Math.round(y2 * sy) - Math.round(y1 * sy);
+          const padX = Math.round(fw * 0.1);
+          const padY = Math.round(fh * 0.1);
+          const cx = Math.max(0, Math.round(x1 * sx) - padX);
+          const cy = Math.max(0, Math.round(y1 * sy) - padY);
+          const cw =
+            Math.min(corsImg.naturalWidth, Math.round(x2 * sx) + padX) - cx;
+          const ch =
+            Math.min(corsImg.naturalHeight, Math.round(y2 * sy) + padY) - cy;
+          const c = document.createElement("canvas");
+          c.width = cw;
+          c.height = ch;
+          c.getContext("2d")?.drawImage(corsImg, cx, cy, cw, ch, 0, 0, cw, ch);
+          newCropCanvases.push(c);
+        }
+
+        // Load existing source image (if any)
+        const parts: HTMLCanvasElement[] = [];
+        if (sourceImageUrl) {
+          const oldImg = new Image();
+          await new Promise<void>((resolve, reject) => {
+            oldImg.onload = () => resolve();
+            oldImg.onerror = () => reject(new Error("Failed to load source"));
+            oldImg.src = sourceImageUrl;
+          });
+          const c = document.createElement("canvas");
+          c.width = oldImg.naturalWidth;
+          c.height = oldImg.naturalHeight;
+          c.getContext("2d")?.drawImage(oldImg, 0, 0);
+          parts.push(c);
+        }
+        parts.push(...newCropCanvases);
+
+        // Composite all parts side by side, normalized to same height
+        const targetH = Math.max(...parts.map((c) => c.height));
+        const gap = 4;
+        const totalW =
+          parts.reduce(
+            (s, c) => s + Math.round((c.width * targetH) / c.height),
+            0,
+          ) +
+          gap * (parts.length - 1);
+        const canvas = document.createElement("canvas");
+        canvas.width = totalW;
+        canvas.height = targetH;
+        const ctx = canvas.getContext("2d");
+        let xOff = 0;
+        for (const part of parts) {
+          const scaledW = Math.round((part.width * targetH) / part.height);
+          ctx?.drawImage(part, 0, 0, part.width, part.height, xOff, 0, scaledW, targetH);
+          xOff += scaledW + gap;
+        }
+        const blob = await new Promise<Blob>((resolve, reject) =>
+          canvas.toBlob(
+            (b) => (b ? resolve(b) : reject(new Error("toBlob failed"))),
+            "image/jpeg",
+            0.85,
+          ),
+        );
+        const url = URL.createObjectURL(blob);
+        setSourceImageUrl((prev) => {
+          revokeIfBlobUrl(prev);
+          return url;
+        });
+      } catch {
+        // Keep existing source image on error
+      }
+
+      setActiveFaceEmbeddings(mergedEmbeddings);
+      setSelectedIndex(null);
+      setSearchMode("image");
+      search.searchByFaces(mergedEmbeddings, search.selectedEvents);
+    },
+    [faces, search, selectedIndex, activeFaceEmbeddings, sourceImageUrl],
   );
 
   const handleSearchFaceAsImage = useCallback(async () => {
@@ -252,7 +389,7 @@ export default function App() {
     try {
       const resp = await fetch(sourceImageUrl);
       const blob = await resp.blob();
-      setActiveFaceEmbedding(null);
+      setActiveFaceEmbeddings(null);
       await loadVisionModel();
       search.searchByImage(blob, search.selectedEvents);
     } catch {
@@ -260,10 +397,10 @@ export default function App() {
     }
   }, [sourceImageUrl, search, loadVisionModel]);
 
-  const handleReSearchByFace = useCallback(() => {
-    if (!activeFaceEmbedding) return;
-    search.searchByFace(activeFaceEmbedding, search.selectedEvents);
-  }, [activeFaceEmbedding, search]);
+  const handleReSearchByFaces = useCallback(() => {
+    if (!activeFaceEmbeddings || activeFaceEmbeddings.length === 0) return;
+    search.searchByFaces(activeFaceEmbeddings, search.selectedEvents);
+  }, [activeFaceEmbeddings, search]);
 
   const handleEventsChange = useCallback(
     (events: string[]) => {
@@ -352,9 +489,9 @@ export default function App() {
             isSearching={search.isSearching}
             disabled={!isTextReady}
             sourceImageUrl={sourceImageUrl}
-            activeFaceEmbedding={activeFaceEmbedding}
+            activeFaceEmbeddings={activeFaceEmbeddings}
             onSearchAsImage={handleSearchFaceAsImage}
-            onReSearchByFace={handleReSearchByFace}
+            onReSearchByFaces={handleReSearchByFaces}
           />
         )}
 
@@ -372,11 +509,13 @@ export default function App() {
           results={search.results}
           selectedIndex={selectedIndex}
           faces={faces}
+          hasActiveFaceQuery={activeFaceEmbeddings != null && activeFaceEmbeddings.length > 0}
           onSelect={setSelectedIndex}
           onClose={handleClosePreview}
           onFindSimilar={handleFindSimilar}
           onSearchCropped={handleSearchCropped}
-          onFindSamePerson={handleFindSamePerson}
+          onFindSamePersons={handleFindSamePersons}
+          onAddFacesToQuery={handleAddFacesToQuery}
         />
       )}
 

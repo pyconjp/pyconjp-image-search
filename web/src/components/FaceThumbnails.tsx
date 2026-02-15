@@ -4,10 +4,16 @@ import type { FaceInfo } from "../types";
 interface Props {
   imageUrl: string;
   faces: FaceInfo[];
-  onFaceClick: (faceIndex: number) => void;
+  selectedIndices: number[];
+  onToggleFace: (faceIndex: number) => void;
 }
 
-export function FaceThumbnails({ imageUrl, faces, onFaceClick }: Props) {
+export function FaceThumbnails({
+  imageUrl,
+  faces,
+  selectedIndices,
+  onToggleFace,
+}: Props) {
   const [cropUrls, setCropUrls] = useState<string[]>([]);
   const prevUrlRef = useRef<string>("");
 
@@ -86,9 +92,9 @@ export function FaceThumbnails({ imageUrl, faces, onFaceClick }: Props) {
         <button
           type="button"
           key={faces[i].face_id}
-          className="face-thumb"
-          onClick={() => onFaceClick(i)}
-          title={`Find same person (score: ${faces[i].det_score.toFixed(2)})`}
+          className={`face-thumb${selectedIndices.includes(i) ? " selected" : ""}`}
+          onClick={() => onToggleFace(i)}
+          title={`Select face ${i + 1} (score: ${faces[i].det_score.toFixed(2)})`}
         >
           <img src={url} alt={`Face ${i + 1}`} />
         </button>

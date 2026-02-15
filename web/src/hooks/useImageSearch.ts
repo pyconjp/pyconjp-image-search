@@ -5,6 +5,7 @@ import {
   getImageEmbedding,
   searchByEmbedding,
   searchByFaceEmbedding,
+  searchByMultipleFaceEmbeddings,
 } from "../lib/search";
 import type { SearchResult } from "../types";
 
@@ -23,6 +24,9 @@ export function useImageSearch(
   const [isSearching, setIsSearching] = useState(false);
   const [message, setMessage] = useState("");
   const [selectedEvents, setSelectedEvents] = useState<string[]>([]);
+  const [currentFaceEmbeddings, setCurrentFaceEmbeddings] = useState<
+    number[][] | null
+  >(null);
 
   const searchByText = useCallback(
     async (query: string, eventNames?: string[]) => {
@@ -42,6 +46,7 @@ export function useImageSearch(
         });
         setResults(hits);
         setCurrentEmbedding(embedding);
+        setCurrentFaceEmbeddings(null);
         setOffset(PAGE_SIZE);
         setHasMore(hits.length === PAGE_SIZE);
         setMessage(`Found ${hits.length} images for "${query}".`);
@@ -67,6 +72,7 @@ export function useImageSearch(
         });
         setResults(hits);
         setCurrentEmbedding(embedding);
+        setCurrentFaceEmbeddings(null);
         setOffset(PAGE_SIZE);
         setHasMore(hits.length === PAGE_SIZE);
         setMessage(`Found ${hits.length} similar images.`);
@@ -96,6 +102,7 @@ export function useImageSearch(
         });
         setResults(hits);
         setCurrentEmbedding(embedding);
+        setCurrentFaceEmbeddings(null);
         setOffset(PAGE_SIZE);
         setHasMore(hits.length === PAGE_SIZE);
         setMessage(`Found ${hits.length} similar images.`);
@@ -114,14 +121,15 @@ export function useImageSearch(
       try {
         const events = eventNames ?? selectedEvents;
         const hits = await searchByFaceEmbedding(conn, faceEmbedding, {
-          limit: PAGE_SIZE * 2, // extra since we deduplicate
+          limit: PAGE_SIZE,
           offset: 0,
           eventNames: events.length > 0 ? events : undefined,
         });
         setResults(hits);
-        setCurrentEmbedding(null); // face embeddings don't support load-more
-        setOffset(0);
-        setHasMore(false);
+        setCurrentEmbedding(null);
+        setCurrentFaceEmbeddings([faceEmbedding]);
+        setOffset(PAGE_SIZE);
+        setHasMore(hits.length === PAGE_SIZE);
         setMessage(`Found ${hits.length} images with similar faces.`);
         if (eventNames) setSelectedEvents(eventNames);
       } finally {
@@ -131,14 +139,86 @@ export function useImageSearch(
     [conn, selectedEvents],
   );
 
+  const searchByFaces = useCallback(
+    async (faceEmbeddings: number[][], eventNames?: string[]) => {
+      if (!conn || faceEmbeddings.length === 0) return;
+      setIsSearching(true);
+      try {
+        const events = eventNames ?? selectedEvents;
+        const evNames = events.length > 0 ? events : undefined;
+        const hits = await searchByMultipleFaceEmbeddings(
+          conn,
+          faceEmbeddings,
+          {
+            limit: PAGE_SIZE,
+            offset: 0,
+            eventNames: evNames,
+          },
+        );
+        setResults(hits);
+        setCurrentEmbedding(null);
+        setCurrentFaceEmbeddings(faceEmbeddings);
+        setOffset(PAGE_SIZE);
+        setHasMore(hits.length === PAGE_SIZE);
+        const msg =
+          faceEmbeddings.length === 1
+            ? `Found ${hits.length} images with similar faces.`
+            : `Found ${hits.length} images with all ${faceEmbeddings.length} faces.`;
+        setMessage(msg);
+        if (eventNames) setSelectedEvents(eventNames);
+      } finally {
+        setIsSearching(false);
+      }
+    },
+    [conn, selectedEvents],
+  );
+
   const loadMore = useCallback(async () => {
-    if (!conn || !currentEmbedding) return;
+    if (!conn) return;
+    const evNames = selectedEvents.length > 0 ? selectedEvents : undefined;
+
+    if (currentFaceEmbeddings) {
+      // Face search load more
+      setIsSearching(true);
+      try {
+        if (currentFaceEmbeddings.length === 1 && currentFaceEmbeddings[0]) {
+          // Single face: offset-based pagination
+          const hits = await searchByFaceEmbedding(
+            conn,
+            currentFaceEmbeddings[0],
+            { limit: PAGE_SIZE, offset, eventNames: evNames },
+          );
+          setResults((prev) => [...prev, ...hits]);
+          setOffset((prev) => prev + hits.length);
+          setHasMore(hits.length === PAGE_SIZE);
+          setMessage(`Showing ${results.length + hits.length} images.`);
+        } else {
+          // Multi face: re-fetch with larger limit
+          const newLimit = offset + PAGE_SIZE;
+          const hits = await searchByMultipleFaceEmbeddings(
+            conn,
+            currentFaceEmbeddings,
+            { limit: newLimit, offset: 0, eventNames: evNames },
+          );
+          const hasNew = hits.length > results.length;
+          setResults(hits);
+          setOffset(newLimit);
+          setHasMore(hasNew && hits.length === newLimit);
+          setMessage(`Showing ${hits.length} images.`);
+        }
+      } finally {
+        setIsSearching(false);
+      }
+      return;
+    }
+
+    if (!currentEmbedding) return;
     setIsSearching(true);
     try {
       const hits = await searchByEmbedding(conn, currentEmbedding, {
         limit: PAGE_SIZE,
         offset,
-        eventNames: selectedEvents.length > 0 ? selectedEvents : undefined,
+        eventNames: evNames,
       });
       setResults((prev) => [...prev, ...hits]);
       setOffset((prev) => prev + hits.length);
@@ -147,7 +227,14 @@ export function useImageSearch(
     } finally {
       setIsSearching(false);
     }
-  }, [conn, currentEmbedding, offset, selectedEvents, results.length]);
+  }, [
+    conn,
+    currentEmbedding,
+    currentFaceEmbeddings,
+    offset,
+    selectedEvents,
+    results.length,
+  ]);
 
   return {
     results,
@@ -160,6 +247,7 @@ export function useImageSearch(
     searchByImage,
     searchByStoredEmbedding,
     searchByFace,
+    searchByFaces,
     loadMore,
   };
 }

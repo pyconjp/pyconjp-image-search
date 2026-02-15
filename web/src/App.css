@@ -467,6 +467,17 @@ body {
   cursor: not-allowed;
 }
 
+.preview-actions .add-to-query-btn {
+  border-color: #2d6a4f;
+  color: #2d6a4f;
+  font-weight: 500;
+}
+
+.preview-actions .add-to-query-btn:hover:not(:disabled) {
+  background: #2d6a4f;
+  color: #fff;
+}
+
 /* ── Face Thumbnails ─────────────────────────────────────── */
 .face-thumbnails {
   display: flex;
@@ -500,6 +511,11 @@ body {
 .face-thumb:hover {
   border-color: #1a1a2e;
   transform: scale(1.05);
+}
+
+.face-thumb.selected {
+  border-color: #1a1a2e;
+  box-shadow: 0 0 0 2px #1a1a2e;
 }
 
 .face-thumb img {

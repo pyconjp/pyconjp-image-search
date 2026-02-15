@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { flickrUrlResize } from "../lib/flickr";
 import type { CropRect, FaceInfo, SearchResult } from "../types";
 import { CropOverlay } from "./CropOverlay";
@@ -9,25 +9,51 @@ interface Props {
   results: SearchResult[];
   selectedIndex: number | null;
   faces: FaceInfo[];
+  hasActiveFaceQuery: boolean;
   onSelect: (index: number) => void;
   onClose: () => void;
   onFindSimilar: (imageId: number) => void;
   onSearchCropped: (imageUrl: string, crop: CropRect) => void;
-  onFindSamePerson: (faceIndex: number) => void;
+  onFindSamePersons: (faceIndices: number[]) => void;
+  onAddFacesToQuery: (faceIndices: number[]) => void;
 }
 
 export function Preview({
   results,
   selectedIndex,
   faces,
+  hasActiveFaceQuery,
   onSelect,
   onClose,
   onFindSimilar,
   onSearchCropped,
-  onFindSamePerson,
+  onFindSamePersons,
+  onAddFacesToQuery,
 }: Props) {
   const imageRef = useRef<HTMLImageElement>(null);
   const [cropRect, setCropRect] = useState<CropRect | null>(null);
+  const [selectedFaceIndices, setSelectedFaceIndices] = useState<number[]>([]);
+
+  // Reset face selection when selected image changes
+  useEffect(() => {
+    setSelectedFaceIndices([]);
+  }, [selectedIndex]);
+
+  const handleToggleFace = useCallback((index: number) => {
+    setSelectedFaceIndices((prev) =>
+      prev.includes(index) ? prev.filter((i) => i !== index) : [...prev, index],
+    );
+  }, []);
+
+  const handleSearchFaces = useCallback(() => {
+    if (selectedFaceIndices.length === 0) return;
+    onFindSamePersons(selectedFaceIndices);
+  }, [selectedFaceIndices, onFindSamePersons]);
+
+  const handleAddToQuery = useCallback(() => {
+    if (selectedFaceIndices.length === 0) return;
+    onAddFacesToQuery(selectedFaceIndices);
+  }, [selectedFaceIndices, onAddFacesToQuery]);
 
   const hasCrop = cropRect !== null;
 
@@ -116,7 +142,8 @@ export function Preview({
         <FaceThumbnails
           imageUrl={previewUrl}
           faces={faces}
-          onFaceClick={onFindSamePerson}
+          selectedIndices={selectedFaceIndices}
+          onToggleFace={handleToggleFace}
         />
       )}
 
@@ -124,6 +151,25 @@ export function Preview({
         <button type="button" onClick={() => onFindSimilar(selected.id)}>
           Find Similar
         </button>
+        <button
+          type="button"
+          onClick={handleSearchFaces}
+          disabled={selectedFaceIndices.length === 0}
+        >
+          {selectedFaceIndices.length <= 1
+            ? "Find Same Person"
+            : `Find Same ${selectedFaceIndices.length} Persons`}
+        </button>
+        {hasActiveFaceQuery && (
+          <button
+            type="button"
+            onClick={handleAddToQuery}
+            disabled={selectedFaceIndices.length === 0}
+            className="add-to-query-btn"
+          >
+            + Add to Query
+          </button>
+        )}
         <button type="button" onClick={handleSearchCropped} disabled={!hasCrop}>
           Search Cropped
         </button>
