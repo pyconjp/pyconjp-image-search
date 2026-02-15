@@ -91,15 +91,15 @@ export function FaceThumbnails({
       {cropUrls.map((url, i) => {
         const face = faces[i]!;
         return (
-        <button
-          type="button"
-          key={face.face_id}
-          className={`face-thumb${selectedIndices.includes(i) ? " selected" : ""}`}
-          onClick={() => onToggleFace(i)}
-          title={`Select face ${i + 1} (score: ${face.det_score.toFixed(2)})`}
-        >
-          <img src={url} alt={`Face ${i + 1}`} />
-        </button>
+          <button
+            type="button"
+            key={face.face_id}
+            className={`face-thumb${selectedIndices.includes(i) ? " selected" : ""}`}
+            onClick={() => onToggleFace(i)}
+            title={`Select face ${i + 1} (score: ${face.det_score.toFixed(2)})`}
+          >
+            <img src={url} alt={`Face ${i + 1}`} />
+          </button>
         );
       })}
     </div>
