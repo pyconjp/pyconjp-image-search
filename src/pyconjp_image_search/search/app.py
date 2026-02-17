@@ -358,7 +358,9 @@ _MODEL_CHOICES = ["SigLIP 2 base", "SigLIP 2 Large", "CLIP-L"]
 def create_app() -> gr.Blocks:
     """Create and return the Gradio Blocks app."""
     conn_siglip = get_connection(embedding_dim=768)
-    conn_siglip_large = get_connection(str(SIGLIP_LARGE_DB_PATH), embedding_dim=SIGLIP_LARGE_EMBEDDING_DIM)
+    conn_siglip_large = get_connection(
+        str(SIGLIP_LARGE_DB_PATH), embedding_dim=SIGLIP_LARGE_EMBEDDING_DIM
+    )
     conn_clip = get_connection(str(CLIP_DB_PATH))
 
     event_names = get_event_names(conn_siglip)
@@ -384,7 +386,9 @@ def create_app() -> gr.Blocks:
             if "siglip-large" not in _embedder_cache:
                 from pyconjp_image_search.embedding.siglip import SigLIPEmbedder
 
-                _embedder_cache["siglip-large"] = SigLIPEmbedder(model_name=SIGLIP_LARGE_MODEL_NAME)
+                _embedder_cache["siglip-large"] = SigLIPEmbedder(
+                    model_name=SIGLIP_LARGE_MODEL_NAME
+                )
             embedder = _embedder_cache["siglip-large"]
         else:  # SigLIP 2 base
             conn = conn_siglip
