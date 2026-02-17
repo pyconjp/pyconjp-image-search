@@ -35,6 +35,7 @@ def search_images_by_text(
     limit: int = 20,
     offset: int = 0,
     event_names: list[str] | None = None,
+    embedding_dim: int = 768,
 ) -> list[tuple[ImageMetadata, float]]:
     """Search images by cosine similarity to a text embedding."""
     query_vec = query_embedding.flatten().tolist()
@@ -51,7 +52,7 @@ def search_images_by_text(
 
     rows = conn.execute(
         f"""
-        SELECT i.*, list_cosine_similarity(e.embedding, ?::FLOAT[768]) AS score
+        SELECT i.*, list_cosine_similarity(e.embedding, ?::FLOAT[{embedding_dim}]) AS score
         FROM image_embeddings e
         JOIN images i ON i.id = e.image_id
         WHERE {where_sql}

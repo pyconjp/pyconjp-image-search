@@ -3,6 +3,8 @@
 from dataclasses import dataclass
 from datetime import datetime
 
+import numpy as np
+
 
 @dataclass
 class ImageMetadata:
@@ -24,3 +26,20 @@ class ImageMetadata:
     file_size_bytes: int | None
     downloaded_at: datetime | None
     created_at: datetime | None
+
+
+@dataclass
+class FaceDetection:
+    """A single detected face within an image."""
+
+    face_id: str
+    image_id: int
+    model_name: str
+    bbox: tuple[float, float, float, float]  # (x1, y1, x2, y2)
+    det_score: float
+    landmark: list | None
+    age: int | None
+    gender: str | None  # "M" or "F"
+    embedding: np.ndarray  # shape (512,)
+    person_label: str | None
+    cluster_id: int | None

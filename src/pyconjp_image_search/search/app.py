@@ -15,10 +15,18 @@ from pyconjp_image_search.config import (
     CLIP_DB_PATH,
     CLIP_MODEL_NAME,
     FLICKR_USER_ID,
+    INSIGHTFACE_MODEL_NAME,
+    SIGLIP_LARGE_DB_PATH,
+    SIGLIP_LARGE_EMBEDDING_DIM,
+    SIGLIP_LARGE_MODEL_NAME,
     SIGLIP_MODEL_NAME,
 )
 from pyconjp_image_search.db import get_connection
-from pyconjp_image_search.models import ImageMetadata
+from pyconjp_image_search.embedding.face_repository import (
+    get_faces_for_image,
+    search_faces_by_embedding,
+)
+from pyconjp_image_search.models import FaceDetection, ImageMetadata
 from pyconjp_image_search.search.query import (
     get_event_names,
     get_image_embedding,
@@ -37,6 +45,48 @@ def _flickr_url_resize(url: str, size: str = "z") -> str:
     Size suffixes: s=75sq, q=150sq, t=100, m=240, z=640, b=1024, h=1600, k=2048
     """
     return _FLICKR_SIZE_RE.sub(f"_{size}.jpg", url)
+
+
+def _make_face_crops(
+    image_url: str,
+    faces: list[FaceDetection],
+    meta: ImageMetadata,
+) -> list[tuple[str, str]]:
+    """Download image and crop each face region using PIL."""
+    if not faces:
+        return []
+    # Download the original-size image from Flickr
+    url = _flickr_url_resize(image_url, "b")  # 1024px
+    response = urllib.request.urlopen(url)  # noqa: S310
+    img = Image.open(BytesIO(response.read())).convert("RGB")
+    actual_w, actual_h = img.size
+
+    # Compute scale factor: bbox coords are in original image pixels
+    orig_w = meta.width or actual_w
+    orig_h = meta.height or actual_h
+    sx = actual_w / orig_w
+    sy = actual_h / orig_h
+
+    items: list[tuple[str, str]] = []
+    for i, face in enumerate(faces):
+        x1 = int(face.bbox[0] * sx)
+        y1 = int(face.bbox[1] * sy)
+        x2 = int(face.bbox[2] * sx)
+        y2 = int(face.bbox[3] * sy)
+        # Add padding (10% of face size)
+        fw, fh = x2 - x1, y2 - y1
+        pad_x, pad_y = int(fw * 0.1), int(fh * 0.1)
+        x1 = max(0, x1 - pad_x)
+        y1 = max(0, y1 - pad_y)
+        x2 = min(actual_w, x2 + pad_x)
+        y2 = min(actual_h, y2 + pad_y)
+        cropped = img.crop((x1, y1, x2, y2))
+        tmp = tempfile.NamedTemporaryFile(suffix=".jpg", delete=False)
+        cropped.save(tmp, format="JPEG", quality=85)
+        tmp.close()
+        caption = f"Face {i + 1} (score: {face.det_score:.2f})"
+        items.append((tmp.name, caption))
+    return items
 
 
 CUSTOM_CSS = """
@@ -302,12 +352,15 @@ CROP_TO_JSON_JS = """
 """
 
 
-_MODEL_CHOICES = ["SigLIP", "CLIP-L"]
+_MODEL_CHOICES = ["SigLIP 2 base", "SigLIP 2 Large", "CLIP-L"]
 
 
 def create_app() -> gr.Blocks:
     """Create and return the Gradio Blocks app."""
-    conn_siglip = get_connection()
+    conn_siglip = get_connection(embedding_dim=768)
+    conn_siglip_large = get_connection(
+        str(SIGLIP_LARGE_DB_PATH), embedding_dim=SIGLIP_LARGE_EMBEDDING_DIM
+    )
     conn_clip = get_connection(str(CLIP_DB_PATH))
 
     event_names = get_event_names(conn_siglip)
@@ -316,24 +369,37 @@ def create_app() -> gr.Blocks:
     _embedder_cache: dict = {}
 
     def _get_model_config(model_choice: str) -> tuple:
-        """Return (conn, model_name, embedder) for the chosen model."""
+        """Return (conn, model_name, embedder, embedding_dim) for the chosen model."""
         if model_choice == "CLIP-L":
             conn = conn_clip
             model_name = CLIP_MODEL_NAME
+            embedding_dim = 768
             if "clip" not in _embedder_cache:
                 from pyconjp_image_search.embedding.clip import CLIPEmbedder
 
                 _embedder_cache["clip"] = CLIPEmbedder(model_name=CLIP_MODEL_NAME)
             embedder = _embedder_cache["clip"]
-        else:
+        elif model_choice == "SigLIP 2 Large":
+            conn = conn_siglip_large
+            model_name = SIGLIP_LARGE_MODEL_NAME
+            embedding_dim = SIGLIP_LARGE_EMBEDDING_DIM
+            if "siglip-large" not in _embedder_cache:
+                from pyconjp_image_search.embedding.siglip import SigLIPEmbedder
+
+                _embedder_cache["siglip-large"] = SigLIPEmbedder(
+                    model_name=SIGLIP_LARGE_MODEL_NAME
+                )
+            embedder = _embedder_cache["siglip-large"]
+        else:  # SigLIP 2 base
             conn = conn_siglip
             model_name = SIGLIP_MODEL_NAME
+            embedding_dim = 768
             if "siglip" not in _embedder_cache:
                 from pyconjp_image_search.embedding.siglip import SigLIPEmbedder
 
                 _embedder_cache["siglip"] = SigLIPEmbedder(model_name=SIGLIP_MODEL_NAME)
             embedder = _embedder_cache["siglip"]
-        return conn, model_name, embedder
+        return conn, model_name, embedder, embedding_dim
 
     def _make_gallery_items(
         results: list[tuple[ImageMetadata, float]],
@@ -373,6 +439,12 @@ def create_app() -> gr.Blocks:
             item = gallery_items[index]
             caption = _build_preview_caption(item, metadata_list, index)
             preview_url = _get_preview_url(item)
+            # Fetch face detections for this image
+            meta = metadata_list[index]
+            faces = (
+                get_faces_for_image(conn_clip, meta.id, INSIGHTFACE_MODEL_NAME) if meta.id else []
+            )
+            face_crops = _make_face_crops(meta.image_url, faces, meta) if faces else []
             return (
                 gr.update(value=preview_url, visible=True),
                 gr.update(value=caption, visible=True),
@@ -382,9 +454,11 @@ def create_app() -> gr.Blocks:
                 gr.update(visible=True),  # search cropped btn (JS will disable)
                 gr.update(visible=True),  # copy clipboard btn (JS will disable)
                 index,
+                gr.update(value=face_crops, visible=bool(faces)),  # face gallery
+                faces,  # face detections state
             )
         hidden = gr.update(visible=False)
-        return (hidden, hidden, hidden, hidden, hidden, hidden, hidden, None)
+        return (hidden, hidden, hidden, hidden, hidden, hidden, hidden, None, hidden, [])
 
     def _on_thumb_select(gallery_items: list, metadata_list: list, evt: gr.EventData):
         index = evt._data.get("index")
@@ -392,8 +466,19 @@ def create_app() -> gr.Blocks:
             item = gallery_items[index]
             caption = _build_preview_caption(item, metadata_list, index)
             preview_url = _get_preview_url(item)
-            return gr.update(value=preview_url), gr.update(value=caption), index
-        return gr.update(), gr.update(), None
+            meta = metadata_list[index]
+            faces = (
+                get_faces_for_image(conn_clip, meta.id, INSIGHTFACE_MODEL_NAME) if meta.id else []
+            )
+            face_crops = _make_face_crops(meta.image_url, faces, meta) if faces else []
+            return (
+                gr.update(value=preview_url),
+                gr.update(value=caption),
+                index,
+                gr.update(value=face_crops, visible=bool(faces)),
+                faces,
+            )
+        return gr.update(), gr.update(), None, gr.update(visible=False), []
 
     def _on_close_preview():
         return (
@@ -404,11 +489,13 @@ def create_app() -> gr.Blocks:
             gr.update(visible=False),
             gr.update(visible=False),
             gr.update(visible=False),
+            gr.update(value=None, visible=False),  # face gallery
+            [],  # face detections
         )
 
     # ── Cross-tab handlers ───────────────────────────────────────────
 
-    _noop_10 = tuple(gr.update() for _ in range(10))
+    _noop_12 = tuple(gr.update() for _ in range(12))
 
     def _do_find_similar(
         selected_index: int | None,
@@ -417,12 +504,12 @@ def create_app() -> gr.Blocks:
         model_choice: str,
     ) -> tuple:
         if selected_index is None or not metadata_list:
-            return _noop_10
-        mc, model_name, _ = _get_model_config(model_choice)
+            return _noop_12
+        mc, model_name, _, edim = _get_model_config(model_choice)
         meta = metadata_list[selected_index]
         emb = get_image_embedding(mc, meta.id, model_name)
         if emb is None:
-            return _noop_10
+            return _noop_12
         results = search_images_by_text(
             mc,
             query_embedding=emb,
@@ -430,6 +517,7 @@ def create_app() -> gr.Blocks:
             limit=PAGE_SIZE,
             offset=0,
             event_names=selected_events or None,
+            embedding_dim=edim,
         )
         gallery_items, new_metadata = _make_gallery_items(results)
         has_more = len(results) == PAGE_SIZE
@@ -446,6 +534,8 @@ def create_app() -> gr.Blocks:
             selected_events,
             source_url,
             gr.Tabs(selected=1),
+            None,  # clear face embedding
+            gr.update(visible=False),  # hide face search button
         )
 
     def _do_search_cropped(
@@ -454,7 +544,7 @@ def create_app() -> gr.Blocks:
         model_choice: str,
     ) -> tuple:
         if not crop_json:
-            return _noop_10
+            return _noop_12
         data = json.loads(crop_json)
         url = data["url"]
         x, y, w, h = data["x"], data["y"], data["w"], data["h"]
@@ -472,7 +562,7 @@ def create_app() -> gr.Blocks:
         tmp.close()
         image_path = Path(tmp.name)
 
-        mc, model_name, embedder = _get_model_config(model_choice)
+        mc, model_name, embedder, edim = _get_model_config(model_choice)
         query_emb = embedder.embed_images([image_path])
         results = search_images_by_text(
             mc,
@@ -481,6 +571,7 @@ def create_app() -> gr.Blocks:
             limit=PAGE_SIZE,
             offset=0,
             event_names=selected_events or None,
+            embedding_dim=edim,
         )
         gallery_items, new_metadata = _make_gallery_items(results)
         has_more = len(results) == PAGE_SIZE
@@ -496,6 +587,94 @@ def create_app() -> gr.Blocks:
             selected_events,
             str(image_path),
             gr.Tabs(selected=1),
+            None,  # clear face embedding
+            gr.update(visible=False),  # hide face search button
+        )
+
+    def _do_face_search(
+        face_detections: list,
+        selected_events: list[str],
+        face_gallery_items: list,
+        evt: gr.EventData,
+    ) -> tuple:
+        """Search for similar faces when a face thumbnail is clicked."""
+        face_index = evt._data.get("index")
+        if face_index is None or face_index >= len(face_detections):
+            return _noop_12
+        face = face_detections[face_index]
+        results = search_faces_by_embedding(
+            conn_clip,
+            face.embedding,
+            INSIGHTFACE_MODEL_NAME,
+            limit=PAGE_SIZE * 2,  # extra to account for dedup
+            event_names=selected_events or None,
+        )
+        # Deduplicate by image_id (keep highest score per image)
+        seen: dict[int, tuple[ImageMetadata, float]] = {}
+        for _face_det, meta, score in results:
+            if meta.id is None:
+                continue
+            if meta.id not in seen or score > seen[meta.id][1]:
+                seen[meta.id] = (meta, score)
+        deduped = list(seen.values())
+        gallery_items, new_metadata = _make_gallery_items(deduped)
+        msg = f"Found {len(deduped)} images with similar faces."
+        # Extract face crop path to show in Image Search upload
+        face_crop_path = None
+        if face_gallery_items and face_index < len(face_gallery_items):
+            item = face_gallery_items[face_index]
+            face_crop_path = item[0] if isinstance(item, (list, tuple)) else item
+        return (
+            gallery_items,
+            msg,
+            PAGE_SIZE,
+            gallery_items,
+            new_metadata,
+            None,  # no embedding for load-more
+            gr.update(visible=False),  # no load more for face search
+            selected_events,
+            face_crop_path,  # show face crop in Image Search upload
+            gr.Tabs(selected=1),
+            face.embedding,  # store face embedding for re-search
+            gr.update(visible=True),  # show face search button
+        )
+
+    def _do_face_search_from_state(
+        face_embedding_data,
+        selected_events: list[str],
+    ) -> tuple:
+        """Re-search by stored face embedding."""
+        if face_embedding_data is None:
+            return _noop_12
+        results = search_faces_by_embedding(
+            conn_clip,
+            face_embedding_data,
+            INSIGHTFACE_MODEL_NAME,
+            limit=PAGE_SIZE * 2,
+            event_names=selected_events or None,
+        )
+        seen: dict[int, tuple[ImageMetadata, float]] = {}
+        for _face_det, meta, score in results:
+            if meta.id is None:
+                continue
+            if meta.id not in seen or score > seen[meta.id][1]:
+                seen[meta.id] = (meta, score)
+        deduped = list(seen.values())
+        gallery_items, new_metadata = _make_gallery_items(deduped)
+        msg = f"Found {len(deduped)} images with similar faces."
+        return (
+            gallery_items,
+            msg,
+            PAGE_SIZE,
+            gallery_items,
+            new_metadata,
+            None,  # no CLIP embedding
+            gr.update(visible=False),  # no load more
+            selected_events,
+            gr.update(),  # keep image_input as is
+            gr.update(),  # don't switch tabs
+            face_embedding_data,  # keep face embedding
+            gr.update(visible=True),  # keep button visible
         )
 
     # ── Build UI ─────────────────────────────────────────────────────
@@ -505,7 +684,7 @@ def create_app() -> gr.Blocks:
 
         model_selector = gr.Radio(
             choices=_MODEL_CHOICES,
-            value="SigLIP",
+            value="SigLIP 2 base",
             label="Embedding Model",
             interactive=True,
         )
@@ -546,6 +725,14 @@ def create_app() -> gr.Blocks:
                         elem_id="text-copy-clipboard-btn",
                     )
                     text_close_btn = gr.Button("Close Preview", visible=False)
+                text_face_gallery = gr.Gallery(
+                    label="Detected Faces (click to find same person)",
+                    visible=False,
+                    rows=1,
+                    height=100,
+                    allow_preview=False,
+                    elem_classes=["thumb-strip"],
+                )
                 text_thumb_strip = gr.Gallery(
                     label="",
                     visible=False,
@@ -571,6 +758,7 @@ def create_app() -> gr.Blocks:
                 text_metadata_state = gr.State([])
                 text_embedding_state = gr.State(None)
                 text_selected_index_state = gr.State(None)
+                text_face_detections_state = gr.State([])
 
                 def do_text_search(
                     query: str, selected_events: list[str], model_choice: str
@@ -585,7 +773,7 @@ def create_app() -> gr.Blocks:
                             None,
                             gr.update(visible=False),
                         )
-                    mc, model_name, embedder = _get_model_config(model_choice)
+                    mc, model_name, embedder, edim = _get_model_config(model_choice)
                     query_emb = embedder.embed_text(query)
                     results = search_images_by_text(
                         mc,
@@ -594,6 +782,7 @@ def create_app() -> gr.Blocks:
                         limit=PAGE_SIZE,
                         offset=0,
                         event_names=selected_events or None,
+                        embedding_dim=edim,
                     )
                     gallery_items, metadata = _make_gallery_items(results)
                     has_more = len(results) == PAGE_SIZE
@@ -624,7 +813,7 @@ def create_app() -> gr.Blocks:
                             accumulated_meta,
                             gr.update(visible=False),
                         )
-                    mc, model_name, _ = _get_model_config(model_choice)
+                    mc, model_name, _, edim = _get_model_config(model_choice)
                     query_emb = np.array(query_emb_list)
                     results = search_images_by_text(
                         mc,
@@ -633,6 +822,7 @@ def create_app() -> gr.Blocks:
                         limit=PAGE_SIZE,
                         offset=offset,
                         event_names=selected_events or None,
+                        embedding_dim=edim,
                     )
                     new_items, new_meta = _make_gallery_items(results)
                     combined = accumulated + new_items
@@ -669,6 +859,8 @@ def create_app() -> gr.Blocks:
                         text_find_similar_btn,
                         text_search_cropped_btn,
                         text_copy_clipboard_btn,
+                        text_face_gallery,
+                        text_face_detections_state,
                     ],
                 )
                 text_load_more_btn.click(
@@ -702,13 +894,21 @@ def create_app() -> gr.Blocks:
                         text_search_cropped_btn,
                         text_copy_clipboard_btn,
                         text_selected_index_state,
+                        text_face_gallery,
+                        text_face_detections_state,
                     ],
                     js=SCROLL_AND_INIT_CROP_JS % ("text-preview", "text-preview"),
                 )
                 text_thumb_strip.select(
                     fn=_on_thumb_select,
                     inputs=[text_results_state, text_metadata_state],
-                    outputs=[text_preview_image, text_preview_caption, text_selected_index_state],
+                    outputs=[
+                        text_preview_image,
+                        text_preview_caption,
+                        text_selected_index_state,
+                        text_face_gallery,
+                        text_face_detections_state,
+                    ],
                     js=REINIT_CROP_JS % "text-preview",
                 )
                 text_close_btn.click(
@@ -721,6 +921,8 @@ def create_app() -> gr.Blocks:
                         text_find_similar_btn,
                         text_search_cropped_btn,
                         text_copy_clipboard_btn,
+                        text_face_gallery,
+                        text_face_detections_state,
                     ],
                 )
                 text_copy_clipboard_btn.click(
@@ -742,6 +944,7 @@ def create_app() -> gr.Blocks:
                         label="Filter by Event",
                     )
                     image_btn = gr.Button("Search Similar")
+                    face_search_btn = gr.Button("Search Same Person", visible=False)
 
                 img_preview_image = gr.Image(
                     label="Preview",
@@ -763,6 +966,14 @@ def create_app() -> gr.Blocks:
                         elem_id="img-copy-clipboard-btn",
                     )
                     img_close_btn = gr.Button("Close Preview", visible=False)
+                img_face_gallery = gr.Gallery(
+                    label="Detected Faces (click to find same person)",
+                    visible=False,
+                    rows=1,
+                    height=100,
+                    allow_preview=False,
+                    elem_classes=["thumb-strip"],
+                )
                 img_thumb_strip = gr.Gallery(
                     label="",
                     visible=False,
@@ -788,6 +999,8 @@ def create_app() -> gr.Blocks:
                 image_metadata_state = gr.State([])
                 image_embedding_state = gr.State(None)
                 image_selected_index_state = gr.State(None)
+                img_face_detections_state = gr.State([])
+                face_embedding_state = gr.State(None)
 
                 def do_image_search(
                     image_path: str | None,
@@ -843,7 +1056,7 @@ def create_app() -> gr.Blocks:
                             accumulated_meta,
                             gr.update(visible=False),
                         )
-                    mc, model_name, _ = _get_model_config(model_choice)
+                    mc, model_name, _, edim = _get_model_config(model_choice)
                     query_emb = np.array(query_emb_list)
                     results = search_images_by_text(
                         mc,
@@ -852,6 +1065,7 @@ def create_app() -> gr.Blocks:
                         limit=PAGE_SIZE,
                         offset=offset,
                         event_names=selected_events or None,
+                        embedding_dim=edim,
                     )
                     new_items, new_meta = _make_gallery_items(results)
                     combined = accumulated + new_items
@@ -888,7 +1102,12 @@ def create_app() -> gr.Blocks:
                         img_find_similar_btn,
                         img_search_cropped_btn,
                         img_copy_clipboard_btn,
+                        img_face_gallery,
+                        img_face_detections_state,
                     ],
+                ).then(
+                    fn=lambda: (None, gr.update(visible=False)),
+                    outputs=[face_embedding_state, face_search_btn],
                 )
                 image_load_more_btn.click(
                     fn=do_image_load_more,
@@ -921,13 +1140,21 @@ def create_app() -> gr.Blocks:
                         img_search_cropped_btn,
                         img_copy_clipboard_btn,
                         image_selected_index_state,
+                        img_face_gallery,
+                        img_face_detections_state,
                     ],
                     js=SCROLL_AND_INIT_CROP_JS % ("img-preview", "img-preview"),
                 )
                 img_thumb_strip.select(
                     fn=_on_thumb_select,
                     inputs=[image_results_state, image_metadata_state],
-                    outputs=[img_preview_image, img_preview_caption, image_selected_index_state],
+                    outputs=[
+                        img_preview_image,
+                        img_preview_caption,
+                        image_selected_index_state,
+                        img_face_gallery,
+                        img_face_detections_state,
+                    ],
                     js=REINIT_CROP_JS % "img-preview",
                 )
                 img_close_btn.click(
@@ -940,6 +1167,8 @@ def create_app() -> gr.Blocks:
                         img_find_similar_btn,
                         img_search_cropped_btn,
                         img_copy_clipboard_btn,
+                        img_face_gallery,
+                        img_face_detections_state,
                     ],
                 )
                 img_copy_clipboard_btn.click(
@@ -962,6 +1191,8 @@ def create_app() -> gr.Blocks:
                 text_find_similar_btn,
                 text_search_cropped_btn,
                 text_copy_clipboard_btn,
+                text_face_gallery,
+                text_face_detections_state,
                 img_preview_image,
                 img_preview_caption,
                 img_thumb_strip,
@@ -969,10 +1200,12 @@ def create_app() -> gr.Blocks:
                 img_find_similar_btn,
                 img_search_cropped_btn,
                 img_copy_clipboard_btn,
+                img_face_gallery,
+                img_face_detections_state,
             ],
         )
 
-        # ── Cross-tab wiring (Find Similar / Search Cropped) ─────────
+        # ── Cross-tab wiring (Find Similar / Search Cropped / Face Search) ──
         _find_similar_outputs = [
             image_gallery,
             image_info,
@@ -984,6 +1217,8 @@ def create_app() -> gr.Blocks:
             image_event_filter,
             image_input,
             tabs,
+            face_embedding_state,
+            face_search_btn,
         ]
 
         _text_close_outputs = [
@@ -994,6 +1229,8 @@ def create_app() -> gr.Blocks:
             text_find_similar_btn,
             text_search_cropped_btn,
             text_copy_clipboard_btn,
+            text_face_gallery,
+            text_face_detections_state,
         ]
         _img_close_outputs = [
             img_preview_image,
@@ -1003,6 +1240,8 @@ def create_app() -> gr.Blocks:
             img_find_similar_btn,
             img_search_cropped_btn,
             img_copy_clipboard_btn,
+            img_face_gallery,
+            img_face_detections_state,
         ]
 
         text_find_similar_btn.click(
@@ -1052,6 +1291,34 @@ def create_app() -> gr.Blocks:
         ).then(
             fn=_do_search_cropped,
             inputs=[img_crop_data, image_event_filter, model_selector],
+            outputs=_find_similar_outputs,
+        ).then(
+            fn=_on_close_preview,
+            outputs=_img_close_outputs,
+        )
+
+        # Face Search: click face thumbnail → find same person
+        text_face_gallery.select(
+            fn=_do_face_search,
+            inputs=[text_face_detections_state, text_event_filter, text_face_gallery],
+            outputs=_find_similar_outputs,
+        ).then(
+            fn=_on_close_preview,
+            outputs=_text_close_outputs,
+        )
+        img_face_gallery.select(
+            fn=_do_face_search,
+            inputs=[img_face_detections_state, image_event_filter, img_face_gallery],
+            outputs=_find_similar_outputs,
+        ).then(
+            fn=_on_close_preview,
+            outputs=_img_close_outputs,
+        )
+
+        # Re-search by stored face embedding
+        face_search_btn.click(
+            fn=_do_face_search_from_state,
+            inputs=[face_embedding_state, image_event_filter],
             outputs=_find_similar_outputs,
         ).then(
             fn=_on_close_preview,
