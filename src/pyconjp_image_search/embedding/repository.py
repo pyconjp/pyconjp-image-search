@@ -83,12 +83,13 @@ def search_by_embedding(
     query_embedding: np.ndarray,
     model_name: str,
     limit: int = 20,
+    embedding_dim: int = 768,
 ) -> list[tuple[ImageMetadata, float]]:
     """Search images by cosine similarity to query embedding."""
     query_vec = query_embedding.flatten().tolist()
     rows = conn.execute(
-        """
-        SELECT i.*, list_cosine_similarity(e.embedding, ?::FLOAT[768]) AS score
+        f"""
+        SELECT i.*, list_cosine_similarity(e.embedding, ?::FLOAT[{embedding_dim}]) AS score
         FROM image_embeddings e
         JOIN images i ON i.id = e.image_id
         WHERE e.model_name = ?

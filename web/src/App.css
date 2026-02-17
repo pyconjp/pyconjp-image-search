@@ -20,7 +20,10 @@ body {
 
 /* ── Header ──────────────────────────────────────────────── */
 .app-header {
-  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
   margin-bottom: 24px;
 }
 
@@ -597,4 +600,98 @@ body {
 .load-more-button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+/* ── Model Selector ─────────────────────────────────────── */
+.model-selector-overlay {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  background: #f5f5f5;
+}
+
+.model-selector-content {
+  text-align: center;
+  padding: 40px;
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.1);
+  max-width: 600px;
+  width: 90%;
+}
+
+.model-selector-content h2 {
+  margin-bottom: 8px;
+  color: #1a1a2e;
+}
+
+.model-selector-content > p {
+  color: #666;
+  margin-bottom: 24px;
+}
+
+.model-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.model-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 16px 20px;
+  border: 2px solid #ddd;
+  border-radius: 10px;
+  background: #fafafa;
+  cursor: pointer;
+  transition: all 0.2s;
+  text-align: left;
+}
+
+.model-card:hover {
+  border-color: #1a1a2e;
+  background: #f0f0ff;
+}
+
+.model-card h3 {
+  font-size: 1.1rem;
+  margin-bottom: 4px;
+  color: #1a1a2e;
+}
+
+.model-card-details {
+  display: flex;
+  gap: 12px;
+  font-size: 0.85rem;
+  color: #888;
+}
+
+/* ── Model Indicator ────────────────────────────────────── */
+.model-indicator {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.8rem;
+}
+
+.model-indicator-label {
+  color: #888;
+}
+
+.model-indicator-btn {
+  padding: 2px 8px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  background: #fff;
+  font-size: 0.75rem;
+  cursor: pointer;
+  color: #666;
+  transition: all 0.2s;
+}
+
+.model-indicator-btn:hover {
+  border-color: #1a1a2e;
+  color: #1a1a2e;
 }

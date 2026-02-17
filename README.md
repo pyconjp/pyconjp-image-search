@@ -1,6 +1,6 @@
 # PyCon JP Image Search
 
-PyCon JP の Flickr アルバムから画像をダウンロードし、SigLIP / CLIP-L による Embedding を生成して、テキストや画像による類似検索ができるシステムです。
+PyCon JP の Flickr アルバムから画像をダウンロードし、SigLIP 2 / CLIP-L による Embedding を生成して、テキストや画像による類似検索ができるシステムです。
 
 サーバーサイドの Gradio UI に加え、ブラウザ内で完結する React Web アプリも提供しています。
 
@@ -9,7 +9,7 @@ PyCon JP の Flickr アルバムから画像をダウンロードし、SigLIP / 
 | 機能 | CLI コマンド / ディレクトリ | 説明 |
 |------|---------------------------|------|
 | 画像ダウンロード | `pyconjp-manage` | Flickr API でアルバム単位の画像取得、DuckDB にメタデータ保存 |
-| Embedding 生成 | `pyconjp-embed` | SigLIP / CLIP-L モデルで画像の Embedding ベクトルを生成 |
+| Embedding 生成 | `pyconjp-embed` | SigLIP 2 / CLIP-L モデルで画像の Embedding ベクトルを生成 |
 | 検索 UI (Gradio) | `pyconjp-search` | Gradio ベースの検索インターフェース（サーバーサイド） |
 | 検索 UI (React) | `web/` | React + Vite のクライアントサイド検索アプリ |
 
@@ -19,10 +19,10 @@ PyCon JP の Flickr アルバムから画像をダウンロードし、SigLIP / 
 
 | モデル | モデル名 | DB ファイル | 用途 |
 |--------|---------|------------|------|
-| SigLIP | `google/siglip-base-patch16-224` | `pyconjp_image_search.duckdb` | Gradio UI のデフォルト |
+| SigLIP 2 | `google/siglip2-base-patch16-224` | `pyconjp_image_search.duckdb` | Gradio UI のデフォルト |
 | CLIP-L | `openai/clip-vit-large-patch14` | `pyconjp_image_search_clip.duckdb` | React Web アプリ、Gradio UI で選択可能 |
 
-Gradio UI ではドロップダウンで SigLIP / CLIP-L を切り替えて検索できます。React Web アプリは CLIP-L のみ使用します（ブラウザ内で Transformers.js によりモデルを実行）。
+Gradio UI ではドロップダウンで SigLIP 2 / CLIP-L を切り替えて検索できます。React Web アプリは CLIP-L のみ使用します（ブラウザ内で Transformers.js によりモデルを実行）。
 
 ## セットアップ
 
@@ -118,7 +118,7 @@ uv run pyconjp-manage list --album-id 72177720322202729
 #### 生成状況の確認
 
 ```bash
-# SigLIP (デフォルト)
+# SigLIP 2 (デフォルト)
 uv run pyconjp-embed status
 
 # CLIP-L
@@ -128,7 +128,7 @@ uv run pyconjp-embed status --model clip
 #### Embedding の生成
 
 ```bash
-# SigLIP (デフォルト)
+# SigLIP 2 (デフォルト)
 uv run pyconjp-embed generate --batch-size 32
 
 # CLIP-L
@@ -159,7 +159,7 @@ Gradio ベースの Web UI が起動します（デフォルト: http://localhos
 
 テキストで画像を検索します（例: "keynote speaker on stage"）。選択中のモデルでテキストを Embedding に変換し、コサイン類似度で検索します。
 
-- **モデル切り替え** -- ドロップダウンで SigLIP / CLIP-L を選択
+- **モデル切り替え** -- ドロップダウンで SigLIP 2 / CLIP-L を選択
 - **イベントフィルター** -- ドロップダウンでイベント名を選択して絞り込み
 - **プレビュー** -- 検索結果の画像をクリックすると拡大プレビュー表示
 - **サムネイルストリップ** -- プレビュー下部に検索結果のサムネイル一覧を表示
@@ -243,7 +243,7 @@ pyconjp-image-search/
 ├── pyproject.toml
 ├── .env.example
 ├── .gitignore
-├── pyconjp_image_search.duckdb          # SigLIP 用 DB (gitignore)
+├── pyconjp_image_search.duckdb          # SigLIP 2 用 DB (gitignore)
 ├── pyconjp_image_search_clip.duckdb     # CLIP-L 用 DB (gitignore)
 ├── data/pyconjp/                        # ダウンロード画像 (gitignore)
 │   ├── pycon_jp_2024_conference_day1/
@@ -252,7 +252,7 @@ pyconjp-image-search/
 │   └── ...
 ├── scripts/
 │   ├── download_all.py                  # 全アルバム一括ダウンロード
-│   └── copy_metadata_to_clip_db.py      # SigLIP DB → CLIP DB へメタデータコピー
+│   └── copy_metadata_to_clip_db.py      # SigLIP 2 DB → CLIP DB へメタデータコピー
 ├── web/                                 # React Web アプリ
 │   ├── package.json
 │   ├── vite.config.ts
@@ -293,7 +293,7 @@ pyconjp-image-search/
     │   └── repository.py                # images テーブル CRUD
     ├── embedding/                       # Embedding モジュール
     │   ├── __init__.py                  # CLI エントリポイント (pyconjp-embed)
-    │   ├── siglip.py                    # SigLIPEmbedder クラス
+    │   ├── siglip.py                    # SigLIPEmbedder クラス (SigLIP 2)
     │   ├── clip.py                      # CLIPEmbedder クラス
     │   └── repository.py                # image_embeddings テーブル CRUD
     └── search/                          # 検索 UI モジュール
@@ -306,10 +306,10 @@ pyconjp-image-search/
 
 DuckDB を使用し、モデルごとに別ファイルとして保存されます。
 
-- **SigLIP 用**: `pyconjp_image_search.duckdb`
+- **SigLIP 2 用**: `pyconjp_image_search.duckdb`
 - **CLIP-L 用**: `pyconjp_image_search_clip.duckdb`
 
-どちらも同じスキーマを持ちます。`scripts/copy_metadata_to_clip_db.py` で SigLIP 用 DB から CLIP-L 用 DB へメタデータをコピーできます。
+どちらも同じスキーマを持ちます。`scripts/copy_metadata_to_clip_db.py` で SigLIP 2 用 DB から CLIP-L 用 DB へメタデータをコピーできます。
 
 ### images テーブル
 
@@ -356,7 +356,7 @@ Embedding ベクトルを保存します。
 | パッケージ管理 | uv + hatchling |
 | DB | DuckDB |
 | Flickr API | httpx |
-| Embedding | SigLIP / CLIP-L (transformers + torch) |
+| Embedding | SigLIP 2 / CLIP-L (transformers + torch) |
 | 類似検索 | DuckDB `list_cosine_similarity` |
 | 検索 UI | Gradio |
 | 進捗表示 | rich |

@@ -1,8 +1,12 @@
 import type { AsyncDuckDBConnection } from "@duckdb/duckdb-wasm";
 import type { FaceInfo, SearchResult } from "../types";
 
-const MODEL_NAME = "openai/clip-vit-large-patch14";
 const FACE_MODEL_NAME = "insightface/buffalo_l";
+
+export interface SearchConfig {
+  modelName: string;
+  embeddingDim: number;
+}
 
 export async function searchByEmbedding(
   conn: AsyncDuckDBConnection,
@@ -12,10 +16,11 @@ export async function searchByEmbedding(
     offset: number;
     eventNames?: string[];
   },
+  config: SearchConfig,
 ): Promise<SearchResult[]> {
   const vecStr = `[${Array.from(queryEmbedding).join(",")}]`;
 
-  let whereClause = `e.model_name = '${MODEL_NAME}'`;
+  let whereClause = `e.model_name = '${config.modelName}'`;
   if (options.eventNames && options.eventNames.length > 0) {
     const escaped = options.eventNames.map((n) => `'${n.replace(/'/g, "''")}'`);
     whereClause += ` AND i.event_name IN (${escaped.join(",")})`;
@@ -25,7 +30,7 @@ export async function searchByEmbedding(
     SELECT
       i.id, i.image_url, i.event_name, i.event_year,
       i.album_title, i.flickr_photo_id,
-      list_cosine_similarity(e.embedding, ${vecStr}::FLOAT[768]) AS score
+      list_cosine_similarity(e.embedding, ${vecStr}::FLOAT[${config.embeddingDim}]) AS score
     FROM data.image_embeddings e
     JOIN data.images i ON i.id = e.image_id
     WHERE ${whereClause}
@@ -59,9 +64,10 @@ export async function getEventNames(
 export async function getImageEmbedding(
   conn: AsyncDuckDBConnection,
   imageId: number,
+  modelName: string,
 ): Promise<Float32Array | null> {
   const result = await conn.query(
-    `SELECT embedding FROM data.image_embeddings WHERE image_id = ${imageId} AND model_name = '${MODEL_NAME}'`,
+    `SELECT embedding FROM data.image_embeddings WHERE image_id = ${imageId} AND model_name = '${modelName}'`,
   );
   const rows = result.toArray();
   if (rows.length === 0) return null;
@@ -168,7 +174,7 @@ export async function searchByMultipleFaceEmbeddings(
     ),
   );
 
-  // Build map: imageId → scores for each face query
+  // Build map: imageId -> scores for each face query
   const imageScoreMap = new Map<
     number,
     { result: SearchResult; scores: number[] }
@@ -197,7 +203,7 @@ export async function searchByMultipleFaceEmbeddings(
     const avgScore =
       scores.reduce((sum, s) => sum + Math.max(0, s), 0) / numFaces;
     // Bonus for matching more faces: multiply by (matchedCount / numFaces)
-    // All faces matched → 1.0x, partial → proportional
+    // All faces matched -> 1.0x, partial -> proportional
     const matchRatio = matchedCount / numFaces;
     // Combined: weight heavily toward all-match but still show partial
     const combinedScore = avgScore * (0.5 + 0.5 * matchRatio);
