@@ -3,7 +3,7 @@
 import duckdb
 
 
-def ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
+def ensure_schema(conn: duckdb.DuckDBPyConnection, embedding_dim: int = 768) -> None:
     """Create tables and indexes if they do not exist."""
     conn.execute("CREATE SEQUENCE IF NOT EXISTS images_id_seq START 1")
     conn.execute("""
@@ -30,11 +30,11 @@ def ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
     conn.execute("CREATE INDEX IF NOT EXISTS idx_images_album ON images(album_id)")
 
     # image_embeddings table
-    conn.execute("""
+    conn.execute(f"""
         CREATE TABLE IF NOT EXISTS image_embeddings (
             image_id    INTEGER NOT NULL,
             model_name  VARCHAR NOT NULL,
-            embedding   FLOAT[768],
+            embedding   FLOAT[{embedding_dim}],
             created_at  TIMESTAMP DEFAULT current_timestamp,
             PRIMARY KEY (image_id, model_name),
             FOREIGN KEY (image_id) REFERENCES images(id)

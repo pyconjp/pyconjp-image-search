@@ -16,6 +16,9 @@ from pyconjp_image_search.config import (
     CLIP_MODEL_NAME,
     FLICKR_USER_ID,
     INSIGHTFACE_MODEL_NAME,
+    SIGLIP_LARGE_DB_PATH,
+    SIGLIP_LARGE_EMBEDDING_DIM,
+    SIGLIP_LARGE_MODEL_NAME,
     SIGLIP_MODEL_NAME,
 )
 from pyconjp_image_search.db import get_connection
@@ -349,12 +352,15 @@ CROP_TO_JSON_JS = """
 """
 
 
-_MODEL_CHOICES = ["SigLIP", "CLIP-L"]
+_MODEL_CHOICES = ["SigLIP 2 base", "SigLIP 2 Large", "CLIP-L"]
 
 
 def create_app() -> gr.Blocks:
     """Create and return the Gradio Blocks app."""
-    conn_siglip = get_connection()
+    conn_siglip = get_connection(embedding_dim=768)
+    conn_siglip_large = get_connection(
+        str(SIGLIP_LARGE_DB_PATH), embedding_dim=SIGLIP_LARGE_EMBEDDING_DIM
+    )
     conn_clip = get_connection(str(CLIP_DB_PATH))
 
     event_names = get_event_names(conn_siglip)
@@ -363,24 +369,37 @@ def create_app() -> gr.Blocks:
     _embedder_cache: dict = {}
 
     def _get_model_config(model_choice: str) -> tuple:
-        """Return (conn, model_name, embedder) for the chosen model."""
+        """Return (conn, model_name, embedder, embedding_dim) for the chosen model."""
         if model_choice == "CLIP-L":
             conn = conn_clip
             model_name = CLIP_MODEL_NAME
+            embedding_dim = 768
             if "clip" not in _embedder_cache:
                 from pyconjp_image_search.embedding.clip import CLIPEmbedder
 
                 _embedder_cache["clip"] = CLIPEmbedder(model_name=CLIP_MODEL_NAME)
             embedder = _embedder_cache["clip"]
-        else:
+        elif model_choice == "SigLIP 2 Large":
+            conn = conn_siglip_large
+            model_name = SIGLIP_LARGE_MODEL_NAME
+            embedding_dim = SIGLIP_LARGE_EMBEDDING_DIM
+            if "siglip-large" not in _embedder_cache:
+                from pyconjp_image_search.embedding.siglip import SigLIPEmbedder
+
+                _embedder_cache["siglip-large"] = SigLIPEmbedder(
+                    model_name=SIGLIP_LARGE_MODEL_NAME
+                )
+            embedder = _embedder_cache["siglip-large"]
+        else:  # SigLIP 2 base
             conn = conn_siglip
             model_name = SIGLIP_MODEL_NAME
+            embedding_dim = 768
             if "siglip" not in _embedder_cache:
                 from pyconjp_image_search.embedding.siglip import SigLIPEmbedder
 
                 _embedder_cache["siglip"] = SigLIPEmbedder(model_name=SIGLIP_MODEL_NAME)
             embedder = _embedder_cache["siglip"]
-        return conn, model_name, embedder
+        return conn, model_name, embedder, embedding_dim
 
     def _make_gallery_items(
         results: list[tuple[ImageMetadata, float]],
@@ -486,7 +505,7 @@ def create_app() -> gr.Blocks:
     ) -> tuple:
         if selected_index is None or not metadata_list:
             return _noop_12
-        mc, model_name, _ = _get_model_config(model_choice)
+        mc, model_name, _, edim = _get_model_config(model_choice)
         meta = metadata_list[selected_index]
         emb = get_image_embedding(mc, meta.id, model_name)
         if emb is None:
@@ -498,6 +517,7 @@ def create_app() -> gr.Blocks:
             limit=PAGE_SIZE,
             offset=0,
             event_names=selected_events or None,
+            embedding_dim=edim,
         )
         gallery_items, new_metadata = _make_gallery_items(results)
         has_more = len(results) == PAGE_SIZE
@@ -542,7 +562,7 @@ def create_app() -> gr.Blocks:
         tmp.close()
         image_path = Path(tmp.name)
 
-        mc, model_name, embedder = _get_model_config(model_choice)
+        mc, model_name, embedder, edim = _get_model_config(model_choice)
         query_emb = embedder.embed_images([image_path])
         results = search_images_by_text(
             mc,
@@ -551,6 +571,7 @@ def create_app() -> gr.Blocks:
             limit=PAGE_SIZE,
             offset=0,
             event_names=selected_events or None,
+            embedding_dim=edim,
         )
         gallery_items, new_metadata = _make_gallery_items(results)
         has_more = len(results) == PAGE_SIZE
@@ -663,7 +684,7 @@ def create_app() -> gr.Blocks:
 
         model_selector = gr.Radio(
             choices=_MODEL_CHOICES,
-            value="SigLIP",
+            value="SigLIP 2 base",
             label="Embedding Model",
             interactive=True,
         )
@@ -752,7 +773,7 @@ def create_app() -> gr.Blocks:
                             None,
                             gr.update(visible=False),
                         )
-                    mc, model_name, embedder = _get_model_config(model_choice)
+                    mc, model_name, embedder, edim = _get_model_config(model_choice)
                     query_emb = embedder.embed_text(query)
                     results = search_images_by_text(
                         mc,
@@ -761,6 +782,7 @@ def create_app() -> gr.Blocks:
                         limit=PAGE_SIZE,
                         offset=0,
                         event_names=selected_events or None,
+                        embedding_dim=edim,
                     )
                     gallery_items, metadata = _make_gallery_items(results)
                     has_more = len(results) == PAGE_SIZE
@@ -791,7 +813,7 @@ def create_app() -> gr.Blocks:
                             accumulated_meta,
                             gr.update(visible=False),
                         )
-                    mc, model_name, _ = _get_model_config(model_choice)
+                    mc, model_name, _, edim = _get_model_config(model_choice)
                     query_emb = np.array(query_emb_list)
                     results = search_images_by_text(
                         mc,
@@ -800,6 +822,7 @@ def create_app() -> gr.Blocks:
                         limit=PAGE_SIZE,
                         offset=offset,
                         event_names=selected_events or None,
+                        embedding_dim=edim,
                     )
                     new_items, new_meta = _make_gallery_items(results)
                     combined = accumulated + new_items
@@ -1033,7 +1056,7 @@ def create_app() -> gr.Blocks:
                             accumulated_meta,
                             gr.update(visible=False),
                         )
-                    mc, model_name, _ = _get_model_config(model_choice)
+                    mc, model_name, _, edim = _get_model_config(model_choice)
                     query_emb = np.array(query_emb_list)
                     results = search_images_by_text(
                         mc,
@@ -1042,6 +1065,7 @@ def create_app() -> gr.Blocks:
                         limit=PAGE_SIZE,
                         offset=offset,
                         event_names=selected_events or None,
+                        embedding_dim=edim,
                     )
                     new_items, new_meta = _make_gallery_items(results)
                     combined = accumulated + new_items

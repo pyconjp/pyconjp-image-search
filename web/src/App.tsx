@@ -1,15 +1,23 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { EventFilter } from "./components/EventFilter";
 import { Gallery } from "./components/Gallery";
 import { ImageUpload } from "./components/ImageUpload";
 import { LoadingOverlay } from "./components/LoadingOverlay";
 import { LoadMoreButton } from "./components/LoadMoreButton";
+import { ModelIndicator } from "./components/ModelIndicator";
+import { ModelSelector } from "./components/ModelSelector";
 import { Preview } from "./components/Preview";
 import { SearchBar } from "./components/SearchBar";
-import { useCLIPEncoder } from "./hooks/useCLIPEncoder";
 import { useDuckDB } from "./hooks/useDuckDB";
+import { useEncoder } from "./hooks/useEncoder";
 import { useImageSearch } from "./hooks/useImageSearch";
 import { flickrUrlResize } from "./lib/flickr";
+import {
+  clearStoredModelId,
+  getModelConfig,
+  getStoredModelId,
+  storeModelId,
+} from "./lib/models";
 import { getEventNames, getFacesForImage } from "./lib/search";
 import type { CropRect, FaceInfo } from "./types";
 import "./App.css";
@@ -21,7 +29,46 @@ function revokeIfBlobUrl(url: string | null) {
 }
 
 export default function App() {
-  const { conn, isLoading: dbLoading, error: dbError } = useDuckDB();
+  // ── Model selection ──────────────────────────────────────
+  const [selectedModelId, setSelectedModelId] = useState<string | null>(
+    getStoredModelId,
+  );
+  const [showSelector, setShowSelector] = useState(selectedModelId === null);
+
+  const config = useMemo(
+    () => (selectedModelId ? getModelConfig(selectedModelId) : null),
+    [selectedModelId],
+  );
+
+  const handleSelectModel = useCallback((modelId: string) => {
+    storeModelId(modelId);
+    setSelectedModelId(modelId);
+    setShowSelector(false);
+  }, []);
+
+  const handleChangeModel = useCallback(() => {
+    setShowSelector(true);
+  }, []);
+
+  const handleClearCache = useCallback(async () => {
+    clearStoredModelId();
+    // Clear Transformers.js ONNX model cache (Cache API)
+    const keys = await caches.keys();
+    for (const key of keys) {
+      if (key.includes("transformers")) {
+        await caches.delete(key);
+      }
+    }
+    setSelectedModelId(null);
+    setShowSelector(true);
+  }, []);
+
+  // ── Core hooks ───────────────────────────────────────────
+  const {
+    conn,
+    isLoading: dbLoading,
+    error: dbError,
+  } = useDuckDB(config?.dbFileName ?? null);
   const {
     encoder,
     isTextReady,
@@ -29,8 +76,8 @@ export default function App() {
     progress: modelProgress,
     error: modelError,
     loadVisionModel,
-  } = useCLIPEncoder();
-  const search = useImageSearch(conn, encoder);
+  } = useEncoder(config);
+  const search = useImageSearch(conn, encoder, config);
 
   const [eventNames, setEventNames] = useState<string[]>([]);
   const [searchMode, setSearchMode] = useState<SearchMode>("text");
@@ -440,13 +487,19 @@ export default function App() {
     return () => document.removeEventListener("paste", handlePaste);
   }, [handleImageUpload]);
 
-  // Show loading screen
+  // ── Model selector ───────────────────────────────────────
+  if (showSelector) {
+    return <ModelSelector onSelect={handleSelectModel} />;
+  }
+
+  // ── Loading screen ───────────────────────────────────────
   if (dbLoading || modelLoading) {
     return (
       <LoadingOverlay
         dbReady={!dbLoading}
         modelReady={isTextReady}
         modelProgress={modelProgress}
+        modelLabel={config?.label ?? "model"}
         error={dbError || modelError}
       />
     );
@@ -458,6 +511,7 @@ export default function App() {
         dbReady={!dbLoading}
         modelReady={isTextReady}
         modelProgress={0}
+        modelLabel={config?.label ?? "model"}
         error={dbError || modelError}
       />
     );
@@ -467,6 +521,11 @@ export default function App() {
     <div className="app">
       <header className="app-header">
         <h1>PyCon JP Image Search</h1>
+        <ModelIndicator
+          modelLabel={config?.label ?? ""}
+          onChangeModel={handleChangeModel}
+          onClearCache={handleClearCache}
+        />
       </header>
 
       <div className="search-controls">

@@ -1,19 +1,40 @@
 import type { AsyncDuckDBConnection } from "@duckdb/duckdb-wasm";
-import { useEffect, useState } from "react";
-import { initDuckDB } from "../lib/duckdb";
+import { useEffect, useRef, useState } from "react";
+import { closeDuckDB, type DuckDBInstance, initDuckDB } from "../lib/duckdb";
 
-export function useDuckDB() {
+export function useDuckDB(dbFileName: string | null) {
   const [conn, setConn] = useState<AsyncDuckDBConnection | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const instanceRef = useRef<DuckDBInstance | null>(null);
 
   useEffect(() => {
+    if (!dbFileName) {
+      setConn(null);
+      setIsLoading(false);
+      return;
+    }
+
     let cancelled = false;
-    initDuckDB()
-      .then((c) => {
+    setIsLoading(true);
+    setError(null);
+    setConn(null);
+
+    // Close previous instance
+    const prevInstance = instanceRef.current;
+    if (prevInstance) {
+      instanceRef.current = null;
+      closeDuckDB(prevInstance);
+    }
+
+    initDuckDB(dbFileName)
+      .then((instance) => {
         if (!cancelled) {
-          setConn(c);
+          instanceRef.current = instance;
+          setConn(instance.conn);
           setIsLoading(false);
+        } else {
+          closeDuckDB(instance);
         }
       })
       .catch((e: unknown) => {
@@ -22,10 +43,11 @@ export function useDuckDB() {
           setIsLoading(false);
         }
       });
+
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [dbFileName]);
 
   return { conn, isLoading, error };
 }

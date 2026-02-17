@@ -16,9 +16,9 @@ def main() -> None:
     gen_parser.add_argument("--device", default="cuda", help="Device: cuda or cpu (default: cuda)")
     gen_parser.add_argument(
         "--model",
-        choices=["siglip", "clip"],
+        choices=["siglip", "siglip-large", "clip"],
         default="siglip",
-        help="Model to use: siglip or clip (default: siglip)",
+        help="Model to use: siglip, siglip-large, or clip (default: siglip)",
     )
     gen_parser.add_argument(
         "--limit",
@@ -36,7 +36,7 @@ def main() -> None:
     status_parser = subparsers.add_parser("status", help="Show embedding generation status")
     status_parser.add_argument(
         "--model",
-        choices=["siglip", "clip"],
+        choices=["siglip", "siglip-large", "clip"],
         default="siglip",
         help="Model to check status for (default: siglip)",
     )
@@ -85,18 +85,12 @@ def main() -> None:
         _cmd_face_status()
 
 
-def _resolve_model_config(model_choice: str) -> tuple[str, str]:
-    """Return (model_name, db_path) for the chosen model."""
-    from pyconjp_image_search.config import (
-        CLIP_DB_PATH,
-        CLIP_MODEL_NAME,
-        DB_PATH,
-        SIGLIP_MODEL_NAME,
-    )
+def _resolve_model_config(model_choice: str) -> tuple[str, str, int]:
+    """Return (model_name, db_path, embedding_dim) for the chosen model."""
+    from pyconjp_image_search.config import MODEL_CONFIGS
 
-    if model_choice == "clip":
-        return CLIP_MODEL_NAME, str(CLIP_DB_PATH)
-    return SIGLIP_MODEL_NAME, str(DB_PATH)
+    cfg = MODEL_CONFIGS[model_choice]
+    return cfg["model_name"], str(cfg["db_path"]), cfg["embedding_dim"]
 
 
 def _cmd_status(args: argparse.Namespace) -> None:
@@ -104,8 +98,8 @@ def _cmd_status(args: argparse.Namespace) -> None:
     from pyconjp_image_search.db import get_connection
     from pyconjp_image_search.embedding.repository import get_embedding_stats
 
-    model_name, db_path = _resolve_model_config(args.model)
-    conn = get_connection(db_path)
+    model_name, db_path, embedding_dim = _resolve_model_config(args.model)
+    conn = get_connection(db_path, embedding_dim=embedding_dim)
     total, embedded = get_embedding_stats(conn, model_name)
     conn.close()
     print(f"Model: {model_name}")
@@ -129,8 +123,8 @@ def _cmd_generate(args: argparse.Namespace) -> None:
         insert_embeddings,
     )
 
-    model_name, db_path = _resolve_model_config(args.model)
-    conn = get_connection(db_path)
+    model_name, db_path, embedding_dim = _resolve_model_config(args.model)
+    conn = get_connection(db_path, embedding_dim=embedding_dim)
 
     if args.force:
         unembedded = get_all_image_ids(conn)
@@ -153,6 +147,7 @@ def _cmd_generate(args: argparse.Namespace) -> None:
 
         embedder = CLIPEmbedder(model_name=model_name, device=args.device)
     else:
+        # Both siglip and siglip-large use the same SigLIPEmbedder class
         from pyconjp_image_search.embedding.siglip import SigLIPEmbedder
 
         embedder = SigLIPEmbedder(model_name=model_name, device=args.device)
