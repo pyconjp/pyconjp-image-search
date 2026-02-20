@@ -29,6 +29,21 @@ class ImageMetadata:
 
 
 @dataclass
+class ObjectDetection:
+    """A single detected object within an image."""
+
+    detection_id: str
+    image_id: int
+    model_name: str
+    label: str
+    confidence: float
+    bbox_x1: float
+    bbox_y1: float
+    bbox_x2: float
+    bbox_y2: float
+
+
+@dataclass
 class FaceDetection:
     """A single detected face within an image."""
 

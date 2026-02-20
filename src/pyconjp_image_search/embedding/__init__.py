@@ -69,6 +69,32 @@ def main() -> None:
     # face-status
     subparsers.add_parser("face-status", help="Show face detection status")
 
+    # object-generate
+    obj_gen_parser = subparsers.add_parser(
+        "object-generate",
+        help="Detect objects using YOLO11 and save to all DBs",
+    )
+    obj_gen_parser.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        help="Max number of images to process (default: all)",
+    )
+    obj_gen_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Re-process all images (delete existing object detections)",
+    )
+    obj_gen_parser.add_argument(
+        "--commit-interval",
+        type=int,
+        default=50,
+        help="Commit to DB every N images (default: 50)",
+    )
+
+    # object-status
+    subparsers.add_parser("object-status", help="Show object detection status for all DBs")
+
     args = parser.parse_args()
 
     if args.command is None:
@@ -83,6 +109,10 @@ def main() -> None:
         _cmd_face_generate(args)
     elif args.command == "face-status":
         _cmd_face_status()
+    elif args.command == "object-generate":
+        _cmd_object_generate(args)
+    elif args.command == "object-status":
+        _cmd_object_status()
 
 
 def _resolve_model_config(model_choice: str) -> tuple[str, str, int]:
@@ -286,3 +316,154 @@ def _cmd_face_status() -> None:
         print(f"Average faces per image: {faces / processed:.1f}")
     if total > 0:
         print(f"Progress: {processed / total * 100:.1f}%")
+
+
+def _cmd_object_generate(args: argparse.Namespace) -> None:
+    """Detect objects using YOLO11 and save results to all DBs."""
+    from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn
+
+    from pyconjp_image_search.config import DATA_DIR, MODEL_CONFIGS, YOLO_MODEL_NAME
+    from pyconjp_image_search.db import get_connection
+    from pyconjp_image_search.embedding.object_repository import (
+        get_object_processed_image_ids,
+        insert_object_detections,
+        mark_image_processed,
+    )
+    from pyconjp_image_search.embedding.repository import get_all_image_ids
+    from pyconjp_image_search.embedding.yolo_detector import YOLODetector
+
+    # Use primary DB (siglip) for detection
+    primary_cfg = MODEL_CONFIGS["siglip"]
+    primary_conn = get_connection(str(primary_cfg["db_path"]), embedding_dim=primary_cfg["embedding_dim"])
+
+    all_images = get_all_image_ids(primary_conn)
+
+    if args.force:
+        primary_conn.execute(
+            "DELETE FROM object_detections WHERE model_name = ?", [YOLO_MODEL_NAME]
+        )
+        primary_conn.execute(
+            "DELETE FROM object_processed_images WHERE model_name = ?", [YOLO_MODEL_NAME]
+        )
+        primary_conn.commit()
+        pending = all_images
+        print(f"Force mode: re-processing all {len(pending)} images.")
+    else:
+        processed = get_object_processed_image_ids(primary_conn, YOLO_MODEL_NAME)
+        pending = [(img_id, path) for img_id, path in all_images if img_id not in processed]
+        if not pending:
+            print("All images already have object detections.")
+            primary_conn.close()
+            return
+
+    if args.limit is not None:
+        pending = pending[: args.limit]
+
+    print(f"Found {len(pending)} images to process.")
+    print("Loading YOLO11 model...")
+
+    detector = YOLODetector()
+    commit_interval = args.commit_interval
+    total_objects = 0
+    errors = 0
+
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[bold blue]{task.description}"),
+        BarColumn(),
+        TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+        TextColumn("{task.completed}/{task.total}"),
+    ) as progress:
+        task = progress.add_task("Detecting objects", total=len(pending))
+
+        for idx, (image_id, relative_path) in enumerate(pending):
+            image_path = DATA_DIR / relative_path
+            if not image_path.exists():
+                progress.advance(task)
+                continue
+
+            try:
+                detections = detector.detect(image_path, image_id)
+                if detections:
+                    insert_object_detections(primary_conn, detections)
+                    total_objects += len(detections)
+                mark_image_processed(
+                    primary_conn, image_id, YOLO_MODEL_NAME, len(detections)
+                )
+            except Exception:
+                errors += 1
+
+            if (idx + 1) % commit_interval == 0:
+                primary_conn.commit()
+
+            progress.advance(task)
+
+    primary_conn.commit()
+    primary_conn.close()
+    print(f"\nDetection done: {len(pending)} images, {total_objects} objects detected.")
+    if errors > 0:
+        print(f"  Errors: {errors}")
+
+    # Copy results to other DBs
+    other_models = ["siglip-large", "clip"]
+    primary_db = str(primary_cfg["db_path"])
+
+    for model_key in other_models:
+        cfg = MODEL_CONFIGS[model_key]
+        target_db = str(cfg["db_path"])
+        print(f"\nCopying to {target_db}...")
+
+        target_conn = get_connection(target_db, embedding_dim=cfg["embedding_dim"])
+
+        # Clear existing data for this model
+        target_conn.execute(
+            "DELETE FROM object_detections WHERE model_name = ?", [YOLO_MODEL_NAME]
+        )
+        target_conn.execute(
+            "DELETE FROM object_processed_images WHERE model_name = ?", [YOLO_MODEL_NAME]
+        )
+
+        # Attach primary DB and copy
+        target_conn.execute(f"ATTACH '{primary_db}' AS src (READ_ONLY)")
+        target_conn.execute("""
+            INSERT INTO object_detections
+            SELECT * FROM src.object_detections
+            WHERE model_name = ?
+        """, [YOLO_MODEL_NAME])
+        target_conn.execute("""
+            INSERT INTO object_processed_images
+            SELECT * FROM src.object_processed_images
+            WHERE model_name = ?
+        """, [YOLO_MODEL_NAME])
+        target_conn.execute("DETACH src")
+        target_conn.commit()
+
+        count = target_conn.execute(
+            "SELECT COUNT(*) FROM object_detections WHERE model_name = ?",
+            [YOLO_MODEL_NAME],
+        ).fetchone()[0]
+        target_conn.close()
+        print(f"  Copied {count} detections.")
+
+    print("\nAll DBs updated.")
+
+
+def _cmd_object_status() -> None:
+    """Show object detection status for all DBs."""
+    from pyconjp_image_search.config import MODEL_CONFIGS, YOLO_MODEL_NAME
+    from pyconjp_image_search.db import get_connection
+    from pyconjp_image_search.embedding.object_repository import get_object_stats
+
+    for model_key, cfg in MODEL_CONFIGS.items():
+        db_path = str(cfg["db_path"])
+        conn = get_connection(db_path, embedding_dim=cfg["embedding_dim"])
+        total, processed, objects = get_object_stats(conn, YOLO_MODEL_NAME)
+        conn.close()
+        print(f"[{model_key}] DB: {db_path}")
+        print(f"  Processed: {processed}/{total} images")
+        print(f"  Objects detected: {objects}")
+        if processed > 0:
+            print(f"  Average objects per image: {objects / processed:.1f}")
+        if total > 0:
+            print(f"  Progress: {processed / total * 100:.1f}%")
+        print()

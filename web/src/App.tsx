@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { EventFilter } from "./components/EventFilter";
+import { TagFilter } from "./components/TagFilter";
 import { Gallery } from "./components/Gallery";
 import { ImageUpload } from "./components/ImageUpload";
 import { LoadingOverlay } from "./components/LoadingOverlay";
@@ -18,7 +19,7 @@ import {
   getStoredModelId,
   storeModelId,
 } from "./lib/models";
-import { getEventNames, getFacesForImage } from "./lib/search";
+import { getEventNames, getFacesForImage, getTagNames } from "./lib/search";
 import type { CropRect, FaceInfo } from "./types";
 import "./App.css";
 
@@ -80,6 +81,7 @@ export default function App() {
   const search = useImageSearch(conn, encoder, config);
 
   const [eventNames, setEventNames] = useState<string[]>([]);
+  const [tagNames, setTagNames] = useState<string[]>([]);
   const [searchMode, setSearchMode] = useState<SearchMode>("text");
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
   const [sourceImageUrl, setSourceImageUrl] = useState<string | null>(null);
@@ -88,10 +90,11 @@ export default function App() {
     number[][] | null
   >(null);
 
-  // Load event names once DB is ready
+  // Load event names and tag names once DB is ready
   useEffect(() => {
     if (!conn) return;
     getEventNames(conn).then(setEventNames).catch(console.error);
+    getTagNames(conn).then(setTagNames).catch(console.error);
   }, [conn]);
 
   // Fetch face detections when an image is selected
@@ -466,6 +469,13 @@ export default function App() {
     [search],
   );
 
+  const handleTagsChange = useCallback(
+    (tags: string[]) => {
+      search.setSelectedTags(tags);
+    },
+    [search],
+  );
+
   // Global paste handler for clipboard image search
   useEffect(() => {
     const handlePaste = async (e: ClipboardEvent) => {
@@ -568,6 +578,11 @@ export default function App() {
           eventNames={eventNames}
           selectedEvents={search.selectedEvents}
           onChange={handleEventsChange}
+        />
+        <TagFilter
+          tags={tagNames}
+          selectedTags={search.selectedTags}
+          onChange={handleTagsChange}
         />
       </div>
 
