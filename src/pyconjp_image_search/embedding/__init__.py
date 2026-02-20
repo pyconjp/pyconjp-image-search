@@ -334,7 +334,9 @@ def _cmd_object_generate(args: argparse.Namespace) -> None:
 
     # Use primary DB (siglip) for detection
     primary_cfg = MODEL_CONFIGS["siglip"]
-    primary_conn = get_connection(str(primary_cfg["db_path"]), embedding_dim=primary_cfg["embedding_dim"])
+    primary_conn = get_connection(
+        str(primary_cfg["db_path"]), embedding_dim=primary_cfg["embedding_dim"]
+    )
 
     all_images = get_all_image_ids(primary_conn)
 
@@ -387,9 +389,7 @@ def _cmd_object_generate(args: argparse.Namespace) -> None:
                 if detections:
                     insert_object_detections(primary_conn, detections)
                     total_objects += len(detections)
-                mark_image_processed(
-                    primary_conn, image_id, YOLO_MODEL_NAME, len(detections)
-                )
+                mark_image_processed(primary_conn, image_id, YOLO_MODEL_NAME, len(detections))
             except Exception:
                 errors += 1
 
@@ -425,23 +425,30 @@ def _cmd_object_generate(args: argparse.Namespace) -> None:
 
         # Attach primary DB and copy
         target_conn.execute(f"ATTACH '{primary_db}' AS src (READ_ONLY)")
-        target_conn.execute("""
+        target_conn.execute(
+            """
             INSERT INTO object_detections
             SELECT * FROM src.object_detections
             WHERE model_name = ?
-        """, [YOLO_MODEL_NAME])
-        target_conn.execute("""
+        """,
+            [YOLO_MODEL_NAME],
+        )
+        target_conn.execute(
+            """
             INSERT INTO object_processed_images
             SELECT * FROM src.object_processed_images
             WHERE model_name = ?
-        """, [YOLO_MODEL_NAME])
+        """,
+            [YOLO_MODEL_NAME],
+        )
         target_conn.execute("DETACH src")
         target_conn.commit()
 
-        count = target_conn.execute(
+        row = target_conn.execute(
             "SELECT COUNT(*) FROM object_detections WHERE model_name = ?",
             [YOLO_MODEL_NAME],
-        ).fetchone()[0]
+        ).fetchone()
+        count = row[0] if row else 0
         target_conn.close()
         print(f"  Copied {count} detections.")
 

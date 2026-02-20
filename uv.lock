@@ -1423,14 +1423,18 @@ dependencies = [
     { name = "duckdb" },
     { name = "gradio" },
     { name = "httpx" },
-    { name = "insightface" },
     { name = "numpy" },
     { name = "pillow" },
     { name = "protobuf" },
     { name = "python-dotenv" },
     { name = "rich" },
-    { name = "sentencepiece" },
     { name = "tenacity" },
+]
+
+[package.optional-dependencies]
+ml = [
+    { name = "insightface" },
+    { name = "sentencepiece" },
     { name = "torch" },
     { name = "transformers" },
     { name = "ultralytics" },
@@ -1448,18 +1452,19 @@ requires-dist = [
     { name = "duckdb", specifier = ">=1.2" },
     { name = "gradio", specifier = ">=5.0" },
     { name = "httpx", specifier = ">=0.28" },
-    { name = "insightface", specifier = ">=0.7" },
+    { name = "insightface", marker = "extra == 'ml'", specifier = ">=0.7" },
     { name = "numpy", specifier = ">=1.26" },
     { name = "pillow", specifier = ">=11.0" },
     { name = "protobuf", specifier = ">=5.0" },
     { name = "python-dotenv", specifier = ">=1.0" },
     { name = "rich", specifier = ">=13.0" },
-    { name = "sentencepiece", specifier = ">=0.2" },
+    { name = "sentencepiece", marker = "extra == 'ml'", specifier = ">=0.2" },
     { name = "tenacity", specifier = ">=9.0" },
-    { name = "torch", specifier = ">=2.0" },
-    { name = "transformers", specifier = ">=4.49" },
-    { name = "ultralytics", specifier = ">=8.3" },
+    { name = "torch", marker = "extra == 'ml'", specifier = ">=2.0" },
+    { name = "transformers", marker = "extra == 'ml'", specifier = ">=4.49" },
+    { name = "ultralytics", marker = "extra == 'ml'", specifier = ">=8.3" },
 ]
+provides-extras = ["ml"]
 
 [package.metadata.requires-dev]
 dev = [

@@ -45,9 +45,7 @@ export function TagFilter({ tags, selectedTags, onChange }: Props) {
             className="tag-chip toggle"
             onClick={() => setExpanded((prev) => !prev)}
           >
-            {expanded
-              ? "Show less"
-              : `+${tags.length - COLLAPSED_LIMIT} more`}
+            {expanded ? "Show less" : `+${tags.length - COLLAPSED_LIMIT} more`}
           </button>
         )}
         {selectedTags.length > 0 && (

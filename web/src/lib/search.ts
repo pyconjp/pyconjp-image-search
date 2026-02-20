@@ -29,7 +29,9 @@ export async function searchByEmbedding(
 
   let tagJoin = "";
   if (options.tagNames && options.tagNames.length > 0) {
-    const escapedTags = options.tagNames.map((t) => `'${t.replace(/'/g, "''")}'`);
+    const escapedTags = options.tagNames.map(
+      (t) => `'${t.replace(/'/g, "''")}'`,
+    );
     tagJoin = `JOIN (SELECT DISTINCT image_id FROM data.object_detections WHERE label IN (${escapedTags.join(",")})) od ON od.image_id = i.id`;
   }
 
@@ -145,7 +147,9 @@ export async function searchByFaceEmbedding(
 
   let tagJoin = "";
   if (options.tagNames && options.tagNames.length > 0) {
-    const escapedTags = options.tagNames.map((t) => `'${t.replace(/'/g, "''")}'`);
+    const escapedTags = options.tagNames.map(
+      (t) => `'${t.replace(/'/g, "''")}'`,
+    );
     tagJoin = `JOIN (SELECT DISTINCT image_id FROM data.object_detections WHERE label IN (${escapedTags.join(",")})) od ON od.image_id = i.id`;
   }
 

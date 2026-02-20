@@ -9,7 +9,9 @@ PyCon JP の Flickr アルバムから画像をダウンロードし、SigLIP 2 
 | 機能 | CLI コマンド / ディレクトリ | 説明 |
 |------|---------------------------|------|
 | 画像ダウンロード | `pyconjp-manage` | Flickr API でアルバム単位の画像取得、DuckDB にメタデータ保存 |
-| Embedding 生成 | `pyconjp-embed` | SigLIP 2 / CLIP-L モデルで画像の Embedding ベクトルを生成 |
+| Embedding 生成 | `pyconjp-embed generate` | SigLIP 2 / CLIP-L モデルで画像の Embedding ベクトルを生成 |
+| 顔検出 | `pyconjp-embed face-generate` | InsightFace による顔検出・顔 Embedding 生成 |
+| 物体検出 | `pyconjp-embed object-generate` | YOLO11 による COCO 80 クラスの物体検出・タグ付け |
 | 検索 UI (Gradio) | `pyconjp-search` | Gradio ベースの検索インターフェース（サーバーサイド） |
 | 検索 UI (React) | `web/` | React + Vite のクライアントサイド検索アプリ |
 
@@ -23,6 +25,14 @@ PyCon JP の Flickr アルバムから画像をダウンロードし、SigLIP 2 
 | CLIP-L | `openai/clip-vit-large-patch14` | `pyconjp_image_search_clip.duckdb` | React Web アプリ、Gradio UI で選択可能 |
 
 Gradio UI ではドロップダウンで SigLIP 2 / CLIP-L を切り替えて検索できます。React Web アプリは CLIP-L のみ使用します（ブラウザ内で Transformers.js によりモデルを実行）。
+
+### 物体検出モデル
+
+| モデル | 用途 | 説明 |
+|--------|------|------|
+| YOLO11s | 物体検出タグ付け | COCO 80 クラス（person, chair, laptop 等）の物体を検出し、タグとして DB に保存 |
+
+YOLO11 による物体検出結果は全 3 DB に共通して保存されます（1 回の検出実行で全 DB にコピー）。
 
 ## セットアップ
 
@@ -38,8 +48,11 @@ Gradio UI ではドロップダウンで SigLIP 2 / CLIP-L を切り替えて検
 ```bash
 git clone <repository-url>
 cd pyconjp-image-search
-uv sync
+uv sync              # 基本パッケージのみ
+uv sync --extra ml   # ML 系パッケージ（Embedding 生成・物体検出に必要）
 ```
+
+ML 系パッケージ（`torch`, `transformers`, `ultralytics`, `insightface` 等）はオプショナルです。Embedding 生成や物体検出を行わない場合（CI の lint/typecheck 等）は `uv sync` のみで十分です。
 
 ### 環境変数の設定
 
@@ -147,7 +160,35 @@ uv run pyconjp-embed generate --model clip --batch-size 32
 | `--limit` | 全件 | 処理する最大画像数 |
 | `--force` | - | 既存 Embedding を上書き再生成 |
 
-### 4. 検索 UI (Gradio)
+### 4. 物体検出（タグ付け）
+
+YOLO11 により画像内の物体を検出し、COCO 80 クラスのラベル（person, chair, laptop 等）をタグとして DB に保存します。
+
+#### 物体検出の実行
+
+```bash
+uv run pyconjp-embed object-generate
+```
+
+プライマリ DB（SigLIP 2）で物体検出を実行し、結果を全 3 DB にコピーします。
+
+**オプション:**
+
+| オプション | デフォルト | 説明 |
+|-----------|-----------|------|
+| `--limit` | 全件 | 処理する最大画像数 |
+| `--force` | - | 既存の検出結果を削除して再実行 |
+| `--commit-interval` | `50` | N 画像ごとに DB にコミット |
+
+#### 検出状況の確認
+
+```bash
+uv run pyconjp-embed object-status
+```
+
+全 3 DB の物体検出状況を表示します。
+
+### 5. 検索 UI (Gradio)
 
 ```bash
 uv run pyconjp-search
@@ -193,7 +234,7 @@ Text Search・Image Search どちらのタブでも、プレビュー表示中�
 
 モデルは初回検索時に自動ロードされます。
 
-### 5. 検索 UI (React Web アプリ)
+### 6. 検索 UI (React Web アプリ)
 
 サーバー不要で、すべての処理がブラウザ内で完結するクライアントサイドアプリケーションです。
 
@@ -231,6 +272,7 @@ React アプリは CLIP-L の DuckDB ファイル (`pyconjp_image_search_clip.du
 - **英訳ボタン** -- Chrome Translator API (Chrome 138+) による日本語→英語翻訳。CLIP-L は英語に最適化されているため、日本語テキストを英訳してから検索すると精度が向上。非対応ブラウザではボタンが非活性になり、ツールチップで案内を表示
 - **画像検索** -- 画像アップロードまたはクリップボードからの貼り付けで類似画像を検索（Vision モデルは初回利用時に遅延ロード）
 - **イベントフィルター** -- イベント名で絞り込み
+- **物体タグフィルター** -- YOLO11 で検出された物体ラベル（person, laptop 等）で絞り込み。15 件以上のタグは折りたたみ表示
 - **プレビュー** -- 画像クリックで拡大表示、サムネイルストリップ付き
 - **Find Similar** -- 検索結果の画像から類似画像を再検索
 - **クロップ検索** -- プレビュー画像上でドラッグして矩形選択し、その領域で類似検索
@@ -244,7 +286,9 @@ pyconjp-image-search/
 ├── .env.example
 ├── .gitignore
 ├── pyconjp_image_search.duckdb          # SigLIP 2 用 DB (gitignore)
+├── pyconjp_image_search_siglip2_large.duckdb  # SigLIP 2 Large 用 DB (gitignore)
 ├── pyconjp_image_search_clip.duckdb     # CLIP-L 用 DB (gitignore)
+├── data/yolo11s.pt                      # YOLO11s モデル (gitignore)
 ├── data/pyconjp/                        # ダウンロード画像 (gitignore)
 │   ├── pycon_jp_2024_conference_day1/
 │   │   ├── 53912345678.jpg
@@ -267,6 +311,7 @@ pyconjp-image-search/
 │       │   ├── Preview.tsx              # プレビュー表示
 │       │   ├── CropOverlay.tsx          # クロップ選択 UI
 │       │   ├── EventFilter.tsx          # イベントフィルター
+│       │   ├── TagFilter.tsx           # 物体タグフィルター
 │       │   └── ...
 │       ├── hooks/                       # カスタムフック
 │       │   ├── useImageSearch.ts        # 検索ロジック
@@ -284,7 +329,7 @@ pyconjp-image-search/
     ├── __init__.py
     ├── config.py                        # 設定（DB パス、Flickr API、Embedding モデル）
     ├── db.py                            # DuckDB 接続ファクトリ
-    ├── models.py                        # ImageMetadata dataclass
+    ├── models.py                        # ImageMetadata, ObjectDetection dataclass
     ├── manager/                         # 画像管理モジュール
     │   ├── __init__.py                  # CLI エントリポイント (pyconjp-manage)
     │   ├── schema.py                    # DDL・マイグレーション
@@ -295,7 +340,11 @@ pyconjp-image-search/
     │   ├── __init__.py                  # CLI エントリポイント (pyconjp-embed)
     │   ├── siglip.py                    # SigLIPEmbedder クラス (SigLIP 2)
     │   ├── clip.py                      # CLIPEmbedder クラス
-    │   └── repository.py                # image_embeddings テーブル CRUD
+    │   ├── insightface_embedder.py      # InsightFace 顔検出
+    │   ├── yolo_detector.py             # YOLO11 物体検出
+    │   ├── repository.py                # image_embeddings テーブル CRUD
+    │   ├── face_repository.py           # 顔検出テーブル CRUD
+    │   └── object_repository.py         # 物体検出テーブル CRUD
     └── search/                          # 検索 UI モジュール
         ├── __init__.py                  # CLI エントリポイント (pyconjp-search)
         ├── query.py                     # 検索クエリ
@@ -307,9 +356,10 @@ pyconjp-image-search/
 DuckDB を使用し、モデルごとに別ファイルとして保存されます。
 
 - **SigLIP 2 用**: `pyconjp_image_search.duckdb`
+- **SigLIP 2 Large 用**: `pyconjp_image_search_siglip2_large.duckdb`
 - **CLIP-L 用**: `pyconjp_image_search_clip.duckdb`
 
-どちらも同じスキーマを持ちます。`scripts/copy_metadata_to_clip_db.py` で SigLIP 2 用 DB から CLIP-L 用 DB へメタデータをコピーできます。
+全 DB が同じスキーマを持ちます。画像メタデータ・顔検出・物体検出は全 DB で共通、Embedding のみモデル固有です。
 
 ### images テーブル
 
@@ -347,6 +397,34 @@ Embedding ベクトルを保存します。
 
 複合主キー `(image_id, model_name)` により、複数モデルの Embedding を同時に保持できます。
 
+### object_detections テーブル
+
+YOLO11 による物体検出結果を保存します。
+
+| カラム | 型 | 説明 |
+|-------|-----|------|
+| `detection_id` | VARCHAR (PK) | 検出 ID（`{image_id}_{model}_{index}` 形式） |
+| `image_id` | INTEGER (FK) | images.id への外部キー |
+| `model_name` | VARCHAR | モデル名（`yolo11s`） |
+| `label` | VARCHAR | COCO 80 クラスのラベル（person, chair 等） |
+| `confidence` | FLOAT | 検出信頼度 |
+| `bbox_x1` | FLOAT | バウンディングボックス左上 X |
+| `bbox_y1` | FLOAT | バウンディングボックス左上 Y |
+| `bbox_x2` | FLOAT | バウンディングボックス右下 X |
+| `bbox_y2` | FLOAT | バウンディングボックス右下 Y |
+| `created_at` | TIMESTAMP | レコード作成日時 |
+
+### object_processed_images テーブル
+
+物体検出の処理済み画像を管理します。
+
+| カラム | 型 | 説明 |
+|-------|-----|------|
+| `image_id` | INTEGER (PK, FK) | images.id への外部キー |
+| `model_name` | VARCHAR (PK) | モデル名 |
+| `object_count` | INTEGER | 検出された物体数 |
+| `processed_at` | TIMESTAMP | 処理日時 |
+
 ## 技術スタック
 
 ### バックエンド (Python)
@@ -357,6 +435,8 @@ Embedding ベクトルを保存します。
 | DB | DuckDB |
 | Flickr API | httpx |
 | Embedding | SigLIP 2 / CLIP-L (transformers + torch) |
+| 顔検出 | InsightFace (buffalo_l) |
+| 物体検出 | YOLO11s (ultralytics) |
 | 類似検索 | DuckDB `list_cosine_similarity` |
 | 検索 UI | Gradio |
 | 進捗表示 | rich |

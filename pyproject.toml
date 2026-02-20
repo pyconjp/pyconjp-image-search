@@ -8,13 +8,17 @@ dependencies = [
     "duckdb>=1.2",
     "gradio>=5.0",
     "httpx>=0.28",
-    "insightface>=0.7",
     "numpy>=1.26",
     "pillow>=11.0",
     "protobuf>=5.0",
     "python-dotenv>=1.0",
     "tenacity>=9.0",
     "rich>=13.0",
+]
+
+[project.optional-dependencies]
+ml = [
+    "insightface>=0.7",
     "sentencepiece>=0.2",
     "torch>=2.0",
     "transformers>=4.49",
@@ -57,3 +61,4 @@ pythonVersion = "3.13"
 venvPath = "."
 venv = ".venv"
 typeCheckingMode = "basic"
+reportMissingImports = "warning"

@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { EventFilter } from "./components/EventFilter";
-import { TagFilter } from "./components/TagFilter";
 import { Gallery } from "./components/Gallery";
 import { ImageUpload } from "./components/ImageUpload";
 import { LoadingOverlay } from "./components/LoadingOverlay";
@@ -9,6 +8,7 @@ import { ModelIndicator } from "./components/ModelIndicator";
 import { ModelSelector } from "./components/ModelSelector";
 import { Preview } from "./components/Preview";
 import { SearchBar } from "./components/SearchBar";
+import { TagFilter } from "./components/TagFilter";
 import { useDuckDB } from "./hooks/useDuckDB";
 import { useEncoder } from "./hooks/useEncoder";
 import { useImageSearch } from "./hooks/useImageSearch";
