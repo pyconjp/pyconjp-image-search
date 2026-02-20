@@ -37,6 +37,10 @@ CLIP_EMBEDDING_DIM = 768
 INSIGHTFACE_MODEL_NAME = "insightface/buffalo_l"
 FACE_EMBEDDING_DIM = 512
 
+# Object detection – YOLO11
+YOLO_MODEL_NAME = "yolo11s"
+YOLO_MODEL_PATH = PROJECT_ROOT / "data" / "yolo11s.pt"
+
 # Model configurations lookup
 MODEL_CONFIGS: dict[str, dict] = {
     "siglip": {

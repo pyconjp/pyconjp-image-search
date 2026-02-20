@@ -15,6 +15,7 @@ export async function searchByEmbedding(
     limit: number;
     offset: number;
     eventNames?: string[];
+    tagNames?: string[];
   },
   config: SearchConfig,
 ): Promise<SearchResult[]> {
@@ -26,6 +27,14 @@ export async function searchByEmbedding(
     whereClause += ` AND i.event_name IN (${escaped.join(",")})`;
   }
 
+  let tagJoin = "";
+  if (options.tagNames && options.tagNames.length > 0) {
+    const escapedTags = options.tagNames.map(
+      (t) => `'${t.replace(/'/g, "''")}'`,
+    );
+    tagJoin = `JOIN (SELECT DISTINCT image_id FROM data.object_detections WHERE label IN (${escapedTags.join(",")})) od ON od.image_id = i.id`;
+  }
+
   const sql = `
     SELECT
       i.id, i.image_url, i.event_name, i.event_year,
@@ -33,6 +42,7 @@ export async function searchByEmbedding(
       list_cosine_similarity(e.embedding, ${vecStr}::FLOAT[${config.embeddingDim}]) AS score
     FROM data.image_embeddings e
     JOIN data.images i ON i.id = e.image_id
+    ${tagJoin}
     WHERE ${whereClause}
     ORDER BY score DESC
     LIMIT ${options.limit}
@@ -59,6 +69,19 @@ export async function getEventNames(
     "SELECT DISTINCT event_name FROM data.images ORDER BY event_name",
   );
   return result.toArray().map((row) => String(row.event_name));
+}
+
+export async function getTagNames(
+  conn: AsyncDuckDBConnection,
+): Promise<string[]> {
+  try {
+    const result = await conn.query(
+      "SELECT DISTINCT label FROM data.object_detections ORDER BY label",
+    );
+    return result.toArray().map((row) => String(row.label));
+  } catch {
+    return [];
+  }
 }
 
 export async function getImageEmbedding(
@@ -111,6 +134,7 @@ export async function searchByFaceEmbedding(
     limit: number;
     offset: number;
     eventNames?: string[];
+    tagNames?: string[];
   },
 ): Promise<SearchResult[]> {
   const vecStr = `[${faceEmbedding.join(",")}]`;
@@ -121,6 +145,14 @@ export async function searchByFaceEmbedding(
     whereClause += ` AND i.event_name IN (${escaped.join(",")})`;
   }
 
+  let tagJoin = "";
+  if (options.tagNames && options.tagNames.length > 0) {
+    const escapedTags = options.tagNames.map(
+      (t) => `'${t.replace(/'/g, "''")}'`,
+    );
+    tagJoin = `JOIN (SELECT DISTINCT image_id FROM data.object_detections WHERE label IN (${escapedTags.join(",")})) od ON od.image_id = i.id`;
+  }
+
   const sql = `
     SELECT
       i.id, i.image_url, i.event_name, i.event_year,
@@ -128,6 +160,7 @@ export async function searchByFaceEmbedding(
       MAX(list_cosine_similarity(f.embedding, ${vecStr}::FLOAT[512])) AS score
     FROM data.face_detections f
     JOIN data.images i ON i.id = f.image_id
+    ${tagJoin}
     WHERE ${whereClause}
     GROUP BY i.id, i.image_url, i.event_name, i.event_year, i.album_title, i.flickr_photo_id
     ORDER BY score DESC
@@ -155,6 +188,7 @@ export async function searchByMultipleFaceEmbeddings(
     limit: number;
     offset: number;
     eventNames?: string[];
+    tagNames?: string[];
   },
 ): Promise<SearchResult[]> {
   if (faceEmbeddings.length === 1 && faceEmbeddings[0]) {

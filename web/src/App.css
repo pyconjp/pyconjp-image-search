@@ -336,6 +336,50 @@ body {
   border-color: #c00;
 }
 
+/* ── Tag Filter ─────────────────────────────────────────── */
+.tag-filter {
+  margin-top: 12px;
+}
+
+.tag-filter-label {
+  font-size: 0.85rem;
+  color: #666;
+  margin-bottom: 6px;
+  display: block;
+}
+
+.tag-filter-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.tag-chip {
+  padding: 4px 12px;
+  border: 1px solid #ddd;
+  border-radius: 16px;
+  background: #fff;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.tag-chip.selected {
+  background: #2d6a4f;
+  color: #fff;
+  border-color: #2d6a4f;
+}
+
+.tag-chip.toggle {
+  color: #555;
+  border-style: dashed;
+}
+
+.tag-chip.clear {
+  color: #c00;
+  border-color: #c00;
+}
+
 /* ── Search Message ──────────────────────────────────────── */
 .search-message {
   text-align: center;
