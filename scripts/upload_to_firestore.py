@@ -14,7 +14,9 @@ Setup (認証):
 
 Usage:
     cd /path/to/pyconjp-image-search
-    uv run scripts/upload_to_firestore.py [--db pyconjp_image_search.duckdb] [--project pyconjp-image-search] [--dry-run]
+    uv run scripts/upload_to_firestore.py \
+        [--db pyconjp_image_search.duckdb] \
+        [--project pyconjp-image-search] [--dry-run]
 """
 
 import argparse
@@ -25,7 +27,6 @@ from pathlib import Path
 import duckdb
 from google.cloud.firestore_v1 import Client
 from google.cloud.firestore_v1.vector import Vector
-
 
 SIGLIP_MODEL = "google/siglip2-base-patch16-224"
 BATCH_LIMIT = 500  # Firestore batch write limit
