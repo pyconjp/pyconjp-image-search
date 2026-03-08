@@ -1,22 +1,13 @@
-import type { AsyncDuckDBConnection } from "@duckdb/duckdb-wasm";
 import { useCallback, useState } from "react";
+import type { DataSource } from "../lib/datasource";
 import type { VisionLanguageEncoder } from "../lib/encoder";
-import type { ModelConfig } from "../lib/models";
-import {
-  getImageEmbedding,
-  type SearchConfig,
-  searchByEmbedding,
-  searchByFaceEmbedding,
-  searchByMultipleFaceEmbeddings,
-} from "../lib/search";
 import type { SearchResult } from "../types";
 
 const PAGE_SIZE = 20;
 
 export function useImageSearch(
-  conn: AsyncDuckDBConnection | null,
+  dataSource: DataSource | null,
   encoder: VisionLanguageEncoder | null,
-  modelConfig: ModelConfig | null,
 ) {
   const [results, setResults] = useState<SearchResult[]>([]);
   const [currentEmbedding, setCurrentEmbedding] = useState<Float32Array | null>(
@@ -32,19 +23,9 @@ export function useImageSearch(
     number[][] | null
   >(null);
 
-  const getSearchConfig = useCallback((): SearchConfig | null => {
-    if (!modelConfig) return null;
-    return {
-      modelName: modelConfig.modelName,
-      embeddingDim: modelConfig.embeddingDim,
-    };
-  }, [modelConfig]);
-
   const searchByText = useCallback(
     async (query: string, eventNames?: string[]) => {
-      if (!conn || !encoder) return;
-      const config = getSearchConfig();
-      if (!config) return;
+      if (!dataSource || !encoder) return;
       if (!query.trim()) {
         setMessage("Please enter a search query.");
         return;
@@ -53,17 +34,12 @@ export function useImageSearch(
       try {
         const embedding = await encoder.encodeText(query);
         const events = eventNames ?? selectedEvents;
-        const hits = await searchByEmbedding(
-          conn,
-          embedding,
-          {
-            limit: PAGE_SIZE,
-            offset: 0,
-            eventNames: events.length > 0 ? events : undefined,
-            tagNames: selectedTags.length > 0 ? selectedTags : undefined,
-          },
-          config,
-        );
+        const hits = await dataSource.searchByEmbedding(embedding, {
+          limit: PAGE_SIZE,
+          offset: 0,
+          eventNames: events.length > 0 ? events : undefined,
+          tagNames: selectedTags.length > 0 ? selectedTags : undefined,
+        });
         setResults(hits);
         setCurrentEmbedding(embedding);
         setCurrentFaceEmbeddings(null);
@@ -75,29 +51,22 @@ export function useImageSearch(
         setIsSearching(false);
       }
     },
-    [conn, encoder, selectedEvents, selectedTags, getSearchConfig],
+    [dataSource, encoder, selectedEvents, selectedTags],
   );
 
   const searchByImage = useCallback(
     async (imageBlob: Blob, eventNames?: string[]) => {
-      if (!conn || !encoder) return;
-      const config = getSearchConfig();
-      if (!config) return;
+      if (!dataSource || !encoder) return;
       setIsSearching(true);
       try {
         const embedding = await encoder.encodeImage(imageBlob);
         const events = eventNames ?? selectedEvents;
-        const hits = await searchByEmbedding(
-          conn,
-          embedding,
-          {
-            limit: PAGE_SIZE,
-            offset: 0,
-            eventNames: events.length > 0 ? events : undefined,
-            tagNames: selectedTags.length > 0 ? selectedTags : undefined,
-          },
-          config,
-        );
+        const hits = await dataSource.searchByEmbedding(embedding, {
+          limit: PAGE_SIZE,
+          offset: 0,
+          eventNames: events.length > 0 ? events : undefined,
+          tagNames: selectedTags.length > 0 ? selectedTags : undefined,
+        });
         setResults(hits);
         setCurrentEmbedding(embedding);
         setCurrentFaceEmbeddings(null);
@@ -109,37 +78,26 @@ export function useImageSearch(
         setIsSearching(false);
       }
     },
-    [conn, encoder, selectedEvents, selectedTags, getSearchConfig],
+    [dataSource, encoder, selectedEvents, selectedTags],
   );
 
   const searchByStoredEmbedding = useCallback(
     async (imageId: number, eventNames?: string[]) => {
-      if (!conn || !modelConfig) return;
-      const config = getSearchConfig();
-      if (!config) return;
+      if (!dataSource) return;
       setIsSearching(true);
       try {
-        const embedding = await getImageEmbedding(
-          conn,
-          imageId,
-          modelConfig.modelName,
-        );
+        const embedding = await dataSource.getImageEmbedding(imageId);
         if (!embedding) {
           setMessage("Embedding not found for this image.");
           return;
         }
         const events = eventNames ?? selectedEvents;
-        const hits = await searchByEmbedding(
-          conn,
-          embedding,
-          {
-            limit: PAGE_SIZE,
-            offset: 0,
-            eventNames: events.length > 0 ? events : undefined,
-            tagNames: selectedTags.length > 0 ? selectedTags : undefined,
-          },
-          config,
-        );
+        const hits = await dataSource.searchByEmbedding(embedding, {
+          limit: PAGE_SIZE,
+          offset: 0,
+          eventNames: events.length > 0 ? events : undefined,
+          tagNames: selectedTags.length > 0 ? selectedTags : undefined,
+        });
         setResults(hits);
         setCurrentEmbedding(embedding);
         setCurrentFaceEmbeddings(null);
@@ -151,16 +109,16 @@ export function useImageSearch(
         setIsSearching(false);
       }
     },
-    [conn, modelConfig, selectedEvents, selectedTags, getSearchConfig],
+    [dataSource, selectedEvents, selectedTags],
   );
 
   const searchByFace = useCallback(
     async (faceEmbedding: number[], eventNames?: string[]) => {
-      if (!conn) return;
+      if (!dataSource) return;
       setIsSearching(true);
       try {
         const events = eventNames ?? selectedEvents;
-        const hits = await searchByFaceEmbedding(conn, faceEmbedding, {
+        const hits = await dataSource.searchByFaceEmbedding(faceEmbedding, {
           limit: PAGE_SIZE,
           offset: 0,
           eventNames: events.length > 0 ? events : undefined,
@@ -177,19 +135,18 @@ export function useImageSearch(
         setIsSearching(false);
       }
     },
-    [conn, selectedEvents, selectedTags],
+    [dataSource, selectedEvents, selectedTags],
   );
 
   const searchByFaces = useCallback(
     async (faceEmbeddings: number[][], eventNames?: string[]) => {
-      if (!conn || faceEmbeddings.length === 0) return;
+      if (!dataSource || faceEmbeddings.length === 0) return;
       setIsSearching(true);
       try {
         const events = eventNames ?? selectedEvents;
         const evNames = events.length > 0 ? events : undefined;
         const tagNames = selectedTags.length > 0 ? selectedTags : undefined;
-        const hits = await searchByMultipleFaceEmbeddings(
-          conn,
+        const hits = await dataSource.searchByMultipleFaceEmbeddings(
           faceEmbeddings,
           {
             limit: PAGE_SIZE,
@@ -213,12 +170,11 @@ export function useImageSearch(
         setIsSearching(false);
       }
     },
-    [conn, selectedEvents, selectedTags],
+    [dataSource, selectedEvents, selectedTags],
   );
 
   const loadMore = useCallback(async () => {
-    if (!conn) return;
-    const config = getSearchConfig();
+    if (!dataSource) return;
     const evNames = selectedEvents.length > 0 ? selectedEvents : undefined;
     const tagNames = selectedTags.length > 0 ? selectedTags : undefined;
 
@@ -228,8 +184,7 @@ export function useImageSearch(
       try {
         if (currentFaceEmbeddings.length === 1 && currentFaceEmbeddings[0]) {
           // Single face: offset-based pagination
-          const hits = await searchByFaceEmbedding(
-            conn,
+          const hits = await dataSource.searchByFaceEmbedding(
             currentFaceEmbeddings[0],
             { limit: PAGE_SIZE, offset, eventNames: evNames, tagNames },
           );
@@ -240,8 +195,7 @@ export function useImageSearch(
         } else {
           // Multi face: re-fetch with larger limit
           const newLimit = offset + PAGE_SIZE;
-          const hits = await searchByMultipleFaceEmbeddings(
-            conn,
+          const hits = await dataSource.searchByMultipleFaceEmbeddings(
             currentFaceEmbeddings,
             { limit: newLimit, offset: 0, eventNames: evNames, tagNames },
           );
@@ -257,20 +211,15 @@ export function useImageSearch(
       return;
     }
 
-    if (!currentEmbedding || !config) return;
+    if (!currentEmbedding) return;
     setIsSearching(true);
     try {
-      const hits = await searchByEmbedding(
-        conn,
-        currentEmbedding,
-        {
-          limit: PAGE_SIZE,
-          offset,
-          eventNames: evNames,
-          tagNames,
-        },
-        config,
-      );
+      const hits = await dataSource.searchByEmbedding(currentEmbedding, {
+        limit: PAGE_SIZE,
+        offset,
+        eventNames: evNames,
+        tagNames,
+      });
       setResults((prev) => [...prev, ...hits]);
       setOffset((prev) => prev + hits.length);
       setHasMore(hits.length === PAGE_SIZE);
@@ -279,14 +228,13 @@ export function useImageSearch(
       setIsSearching(false);
     }
   }, [
-    conn,
+    dataSource,
     currentEmbedding,
     currentFaceEmbeddings,
     offset,
     selectedEvents,
     selectedTags,
     results.length,
-    getSearchConfig,
   ]);
 
   return {
