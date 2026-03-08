@@ -16,6 +16,7 @@
   "dependencies": {
     "@duckdb/duckdb-wasm": "^1.29.0",
     "@huggingface/transformers": "^3.4.0",
+    "firebase-tools": "^15.9.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },
