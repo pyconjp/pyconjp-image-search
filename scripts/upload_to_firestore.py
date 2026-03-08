@@ -74,8 +74,11 @@ def _build_image_event_names(conn: duckdb.DuckDBPyConnection) -> dict[int, str]:
 
 
 def upload_images(
-    conn: duckdb.DuckDBPyConnection, fs_client: Client, dry_run: bool,
-    *, force: bool = False,
+    conn: duckdb.DuckDBPyConnection,
+    fs_client: Client,
+    dry_run: bool,
+    *,
+    force: bool = False,
 ) -> dict[str, str]:
     """Upload images + embeddings. Returns mapping of DuckDB image_id -> flickr_photo_id."""
     rows = conn.execute(f"""
@@ -90,8 +93,16 @@ def upload_images(
     """).fetchall()
 
     columns = [
-        "id", "image_url", "flickr_photo_id", "album_id", "album_title",
-        "event_name", "event_year", "event_type", "width", "height",
+        "id",
+        "image_url",
+        "flickr_photo_id",
+        "album_id",
+        "album_title",
+        "event_name",
+        "event_year",
+        "event_type",
+        "width",
+        "height",
         "embedding",
     ]
 
@@ -163,7 +174,8 @@ def upload_face_detections(
     id_to_photo: dict[str, str],
     id_to_event: dict[int, str],
     dry_run: bool,
-    *, force: bool = False,
+    *,
+    force: bool = False,
 ) -> None:
     """Upload face detections with embeddings."""
     rows = conn.execute("""
@@ -177,10 +189,19 @@ def upload_face_detections(
     """).fetchall()
 
     columns = [
-        "face_id", "image_id", "model_name",
-        "bbox_x1", "bbox_y1", "bbox_x2", "bbox_y2",
-        "det_score", "age", "gender", "embedding",
-        "person_label", "cluster_id",
+        "face_id",
+        "image_id",
+        "model_name",
+        "bbox_x1",
+        "bbox_y1",
+        "bbox_x2",
+        "bbox_y2",
+        "det_score",
+        "age",
+        "gender",
+        "embedding",
+        "person_label",
+        "cluster_id",
     ]
 
     print(f"Face detections: {len(rows)} documents to upload")
@@ -271,10 +292,12 @@ def upload_metadata(
     if dry_run:
         return
 
-    fs_client.collection("metadata").document("filters").set({
-        "event_names": event_names,
-        "tag_labels": tag_labels,
-    })
+    fs_client.collection("metadata").document("filters").set(
+        {
+            "event_names": event_names,
+            "tag_labels": tag_labels,
+        }
+    )
     print("  Completed: metadata/filters uploaded")
 
 
@@ -302,7 +325,9 @@ def main() -> None:
     id_to_event = _build_image_event_names(conn)
 
     id_to_photo = upload_images(conn, fs_client, args.dry_run, force=args.force)
-    upload_face_detections(conn, fs_client, id_to_photo, id_to_event, args.dry_run, force=args.force)
+    upload_face_detections(
+        conn, fs_client, id_to_photo, id_to_event, args.dry_run, force=args.force
+    )
     upload_metadata(conn, fs_client, args.dry_run)
 
     conn.close()
