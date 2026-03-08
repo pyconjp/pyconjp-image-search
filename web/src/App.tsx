@@ -1,25 +1,20 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { EventFilter } from "./components/EventFilter";
 import { Gallery } from "./components/Gallery";
 import { ImageUpload } from "./components/ImageUpload";
 import { LoadingOverlay } from "./components/LoadingOverlay";
 import { LoadMoreButton } from "./components/LoadMoreButton";
-import { ModelIndicator } from "./components/ModelIndicator";
-import { ModelSelector } from "./components/ModelSelector";
+import { LoginScreen } from "./components/LoginScreen";
 import { Preview } from "./components/Preview";
 import { SearchBar } from "./components/SearchBar";
 import { TagFilter } from "./components/TagFilter";
+import { AUTH_REQUIRED, useAuth } from "./hooks/useAuth";
+import { useDataSource, DATASOURCE_TYPE } from "./hooks/useDataSource";
 import { useDuckDB } from "./hooks/useDuckDB";
 import { useEncoder } from "./hooks/useEncoder";
 import { useImageSearch } from "./hooks/useImageSearch";
 import { flickrUrlResize } from "./lib/flickr";
-import {
-  clearStoredModelId,
-  getModelConfig,
-  getStoredModelId,
-  storeModelId,
-} from "./lib/models";
-import { getEventNames, getFacesForImage, getTagNames } from "./lib/search";
+import { DEFAULT_CONFIG } from "./lib/models";
 import type { CropRect, FaceInfo } from "./types";
 import "./App.css";
 
@@ -30,46 +25,20 @@ function revokeIfBlobUrl(url: string | null) {
 }
 
 export default function App() {
-  // ── Model selection ──────────────────────────────────────
-  const [selectedModelId, setSelectedModelId] = useState<string | null>(
-    getStoredModelId,
-  );
-  const [showSelector, setShowSelector] = useState(selectedModelId === null);
-
-  const config = useMemo(
-    () => (selectedModelId ? getModelConfig(selectedModelId) : null),
-    [selectedModelId],
-  );
-
-  const handleSelectModel = useCallback((modelId: string) => {
-    storeModelId(modelId);
-    setSelectedModelId(modelId);
-    setShowSelector(false);
-  }, []);
-
-  const handleChangeModel = useCallback(() => {
-    setShowSelector(true);
-  }, []);
-
-  const handleClearCache = useCallback(async () => {
-    clearStoredModelId();
-    // Clear Transformers.js ONNX model cache (Cache API)
-    const keys = await caches.keys();
-    for (const key of keys) {
-      if (key.includes("transformers")) {
-        await caches.delete(key);
-      }
-    }
-    setSelectedModelId(null);
-    setShowSelector(true);
-  }, []);
+  const config = DEFAULT_CONFIG;
+  const { user, loading: authLoading, error: authError, signIn, signOut } = useAuth();
 
   // ── Core hooks ───────────────────────────────────────────
+  // Only load DuckDB when using duckdb datasource
+  const needDuckDB = DATASOURCE_TYPE !== "firestore";
   const {
     conn,
     isLoading: dbLoading,
     error: dbError,
-  } = useDuckDB(config?.dbFileName ?? null);
+  } = useDuckDB(needDuckDB ? config.dbFileName : null);
+
+  const dataSource = useDataSource(conn, config);
+
   const {
     encoder,
     isTextReady,
@@ -78,7 +47,7 @@ export default function App() {
     error: modelError,
     loadVisionModel,
   } = useEncoder(config);
-  const search = useImageSearch(conn, encoder, config);
+  const search = useImageSearch(dataSource, encoder);
 
   const [eventNames, setEventNames] = useState<string[]>([]);
   const [tagNames, setTagNames] = useState<string[]>([]);
@@ -90,16 +59,16 @@ export default function App() {
     number[][] | null
   >(null);
 
-  // Load event names and tag names once DB is ready
+  // Load event names and tag names once data source is ready
   useEffect(() => {
-    if (!conn) return;
-    getEventNames(conn).then(setEventNames).catch(console.error);
-    getTagNames(conn).then(setTagNames).catch(console.error);
-  }, [conn]);
+    if (!dataSource) return;
+    dataSource.getEventNames().then(setEventNames).catch(console.error);
+    dataSource.getTagNames().then(setTagNames).catch(console.error);
+  }, [dataSource]);
 
   // Fetch face detections when an image is selected
   useEffect(() => {
-    if (!conn || selectedIndex === null) {
+    if (!dataSource || selectedIndex === null) {
       setFaces([]);
       return;
     }
@@ -109,7 +78,8 @@ export default function App() {
       return;
     }
     let cancelled = false;
-    getFacesForImage(conn, selected.id)
+    dataSource
+      .getFacesForImage(selected.id)
       .then((f) => {
         if (!cancelled) setFaces(f);
       })
@@ -119,7 +89,7 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [conn, selectedIndex, search.results]);
+  }, [dataSource, selectedIndex, search.results]);
 
   const handleTextSearch = useCallback(
     (query: string) => {
@@ -497,19 +467,30 @@ export default function App() {
     return () => document.removeEventListener("paste", handlePaste);
   }, [handleImageUpload]);
 
-  // ── Model selector ───────────────────────────────────────
-  if (showSelector) {
-    return <ModelSelector onSelect={handleSelectModel} />;
+  // ── Auth gate ──────────────────────────────────────────
+  if (AUTH_REQUIRED && authLoading) {
+    return (
+      <div className="loading-overlay">
+        <div className="loading-content">
+          <h2>PyCon JP Image Search</h2>
+          <p>認証中...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (AUTH_REQUIRED && !user) {
+    return <LoginScreen onSignIn={signIn} error={authError} />;
   }
 
   // ── Loading screen ───────────────────────────────────────
-  if (dbLoading || modelLoading) {
+  if ((needDuckDB && dbLoading) || modelLoading) {
     return (
       <LoadingOverlay
         dbReady={!dbLoading}
         modelReady={isTextReady}
         modelProgress={modelProgress}
-        modelLabel={config?.label ?? "model"}
+        modelLabel={config.label}
         error={dbError || modelError}
       />
     );
@@ -521,7 +502,7 @@ export default function App() {
         dbReady={!dbLoading}
         modelReady={isTextReady}
         modelProgress={0}
-        modelLabel={config?.label ?? "model"}
+        modelLabel={config.label}
         error={dbError || modelError}
       />
     );
@@ -531,11 +512,54 @@ export default function App() {
     <div className="app">
       <header className="app-header">
         <h1>PyCon JP Image Search</h1>
-        <ModelIndicator
-          modelLabel={config?.label ?? ""}
-          onChangeModel={handleChangeModel}
-          onClearCache={handleClearCache}
-        />
+        {AUTH_REQUIRED && user && (
+          <button
+            type="button"
+            onClick={signOut}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "0.4rem",
+              fontSize: "0.8rem",
+              padding: "0.25rem 0.5rem",
+              border: "1px solid #ccc",
+              borderRadius: "4px",
+              background: "transparent",
+              cursor: "pointer",
+            }}
+          >
+            {user.photoURL ? (
+              <img
+                src={user.photoURL}
+                alt=""
+                style={{
+                  width: "1.4rem",
+                  height: "1.4rem",
+                  borderRadius: "50%",
+                }}
+                referrerPolicy="no-referrer"
+              />
+            ) : (
+              <span
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  width: "1.4rem",
+                  height: "1.4rem",
+                  borderRadius: "50%",
+                  background: "#666",
+                  color: "#fff",
+                  fontSize: "0.7rem",
+                  fontWeight: "bold",
+                }}
+              >
+                {(user.displayName || user.email || "?").charAt(0).toUpperCase()}
+              </span>
+            )}
+            ログアウト
+          </button>
+        )}
       </header>
 
       <div className="search-controls">
