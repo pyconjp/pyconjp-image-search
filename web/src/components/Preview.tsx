@@ -12,7 +12,7 @@ interface Props {
   hasActiveFaceQuery: boolean;
   onSelect: (index: number) => void;
   onClose: () => void;
-  onFindSimilar: (imageId: number) => void;
+  onFindSimilar: (result: SearchResult) => void;
   onSearchCropped: (imageUrl: string, crop: CropRect) => void;
   onFindSamePersons: (faceIndices: number[]) => void;
   onAddFacesToQuery: (faceIndices: number[]) => void;
@@ -149,7 +149,7 @@ export function Preview({
       )}
 
       <div className="preview-actions">
-        <button type="button" onClick={() => onFindSimilar(selected.id)}>
+        <button type="button" onClick={() => onFindSimilar(selected)}>
           Find Similar
         </button>
         <button

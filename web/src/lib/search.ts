@@ -95,7 +95,7 @@ export async function getImageEmbedding(
   const rows = result.toArray();
   if (rows.length === 0) return null;
   // DuckDB-WASM returns list columns as arrays
-  const embArray = rows[0]!.embedding as number[];
+  const embArray = rows[0]?.embedding as number[];
   return new Float32Array(embArray);
 }
 

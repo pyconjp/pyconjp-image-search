@@ -13,11 +13,11 @@ import type { ModelConfig } from "./models";
 
 function normalize(vec: Float32Array): Float32Array {
   let norm = 0;
-  for (let i = 0; i < vec.length; i++) norm += vec[i]! * vec[i]!;
+  for (let i = 0; i < vec.length; i++) norm += (vec[i] ?? 0) * (vec[i] ?? 0);
   norm = Math.sqrt(norm);
   if (norm < 1e-8) return vec;
   const result = new Float32Array(vec.length);
-  for (let i = 0; i < vec.length; i++) result[i] = vec[i]! / norm;
+  for (let i = 0; i < vec.length; i++) result[i] = (vec[i] ?? 0) / norm;
   return result;
 }
 

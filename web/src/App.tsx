@@ -9,13 +9,13 @@ import { Preview } from "./components/Preview";
 import { SearchBar } from "./components/SearchBar";
 import { TagFilter } from "./components/TagFilter";
 import { AUTH_REQUIRED, useAuth } from "./hooks/useAuth";
-import { useDataSource, DATASOURCE_TYPE } from "./hooks/useDataSource";
+import { DATASOURCE_TYPE, useDataSource } from "./hooks/useDataSource";
 import { useDuckDB } from "./hooks/useDuckDB";
 import { useEncoder } from "./hooks/useEncoder";
 import { useImageSearch } from "./hooks/useImageSearch";
 import { flickrUrlResize } from "./lib/flickr";
 import { DEFAULT_CONFIG } from "./lib/models";
-import type { CropRect, FaceInfo } from "./types";
+import type { CropRect, FaceInfo, SearchResult } from "./types";
 import "./App.css";
 
 type SearchMode = "text" | "image";
@@ -26,7 +26,13 @@ function revokeIfBlobUrl(url: string | null) {
 
 export default function App() {
   const config = DEFAULT_CONFIG;
-  const { user, loading: authLoading, error: authError, signIn, signOut } = useAuth();
+  const {
+    user,
+    loading: authLoading,
+    error: authError,
+    signIn,
+    signOut,
+  } = useAuth();
 
   // ── Core hooks ───────────────────────────────────────────
   // Only load DuckDB when using duckdb datasource
@@ -79,7 +85,7 @@ export default function App() {
     }
     let cancelled = false;
     dataSource
-      .getFacesForImage(selected.id)
+      .getFacesForImage(selected.id, selected.flickr_photo_id ?? undefined)
       .then((f) => {
         if (!cancelled) setFaces(f);
       })
@@ -130,20 +136,20 @@ export default function App() {
   }, []);
 
   const handleFindSimilar = useCallback(
-    (imageId: number) => {
-      // Show the selected image as source preview
-      const match = search.results.find((r) => r.id === imageId);
-      if (match) {
-        setSourceImageUrl((prev) => {
-          revokeIfBlobUrl(prev);
-          return null;
-        });
-        setSourceImageUrl(flickrUrlResize(match.image_url, "z"));
-        setSearchMode("image");
-      }
+    (result: SearchResult) => {
+      setSourceImageUrl((prev) => {
+        revokeIfBlobUrl(prev);
+        return null;
+      });
+      setSourceImageUrl(flickrUrlResize(result.image_url, "z"));
+      setSearchMode("image");
       setSelectedIndex(null);
       setActiveFaceEmbeddings(null);
-      search.searchByStoredEmbedding(imageId, search.selectedEvents);
+      search.searchByStoredEmbedding(
+        result.id,
+        search.selectedEvents,
+        result.flickr_photo_id ?? undefined,
+      );
     },
     [search],
   );
@@ -554,7 +560,9 @@ export default function App() {
                   fontWeight: "bold",
                 }}
               >
-                {(user.displayName || user.email || "?").charAt(0).toUpperCase()}
+                {(user.displayName || user.email || "?")
+                  .charAt(0)
+                  .toUpperCase()}
               </span>
             )}
             ログアウト

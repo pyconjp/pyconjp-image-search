@@ -82,11 +82,14 @@ export function useImageSearch(
   );
 
   const searchByStoredEmbedding = useCallback(
-    async (imageId: number, eventNames?: string[]) => {
+    async (imageId: number, eventNames?: string[], flickrPhotoId?: string) => {
       if (!dataSource) return;
       setIsSearching(true);
       try {
-        const embedding = await dataSource.getImageEmbedding(imageId);
+        const embedding = await dataSource.getImageEmbedding(
+          imageId,
+          flickrPhotoId,
+        );
         if (!embedding) {
           setMessage("Embedding not found for this image.");
           return;

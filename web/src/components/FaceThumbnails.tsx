@@ -38,7 +38,8 @@ export function FaceThumbnails({
 
       // Scale factor: bbox coords are in original image pixels,
       // but the loaded image (_b size) may differ
-      const face0 = faces[0]!;
+      const face0 = faces[0];
+      if (!face0) return;
       const scaleX = img.naturalWidth / face0.image_width;
       const scaleY = img.naturalHeight / face0.image_height;
 
@@ -89,7 +90,8 @@ export function FaceThumbnails({
     <div className="face-thumbnails">
       <span className="face-thumbnails-label">Faces:</span>
       {cropUrls.map((url, i) => {
-        const face = faces[i]!;
+        const face = faces[i];
+        if (!face) return null;
         return (
           <button
             type="button"

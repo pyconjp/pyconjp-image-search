@@ -6,9 +6,9 @@ import {
   query,
   where,
 } from "firebase/firestore";
-import { auth, db } from "./firebase";
-import type { DataSource, SearchOptions } from "./datasource";
 import type { FaceInfo, SearchResult } from "../types";
+import type { DataSource, SearchOptions } from "./datasource";
+import { auth, db } from "./firebase";
 
 /**
  * Firestore vector search via REST API.
@@ -47,13 +47,19 @@ async function getAuthToken(): Promise<string> {
   return "";
 }
 
-function extractStringField(fields: Record<string, RestDocField>, key: string): string {
+function extractStringField(
+  fields: Record<string, RestDocField>,
+  key: string,
+): string {
   return fields[key]?.stringValue ?? "";
 }
 
-function extractNumberField(fields: Record<string, RestDocField>, key: string): number {
+function extractNumberField(
+  fields: Record<string, RestDocField>,
+  key: string,
+): number {
   if (fields[key]?.integerValue) return Number(fields[key].integerValue);
-  if (fields[key]?.doubleValue != null) return fields[key].doubleValue!;
+  if (fields[key]?.doubleValue != null) return fields[key].doubleValue ?? 0;
   return 0;
 }
 
@@ -171,8 +177,11 @@ async function runVectorQuery(
 
   const results: RunQueryResponse[] = await resp.json();
   return results
-    .filter((r) => r.document != null)
-    .map((r) => r.document!);
+    .filter(
+      (r): r is RunQueryResponse & { document: RestDocument } =>
+        r.document != null,
+    )
+    .map((r) => r.document);
 }
 
 export class FirestoreDataSource implements DataSource {
@@ -230,7 +239,9 @@ export class FirestoreDataSource implements DataSource {
     ) {
       const tagSet = new Set(options.tagNames);
       results = results.filter((r) => {
-        const doc = docs.find((d) => extractDocId(d.name) === r.flickr_photo_id);
+        const doc = docs.find(
+          (d) => extractDocId(d.name) === r.flickr_photo_id,
+        );
         const tagsField = doc?.fields.tags?.arrayValue?.values;
         if (!tagsField) return false;
         return tagsField.some(
@@ -265,7 +276,10 @@ export class FirestoreDataSource implements DataSource {
     );
 
     // Group by flickr_photo_id, keeping the first (closest) occurrence
-    const imageMap = new Map<string, { fields: Record<string, RestDocField> }>();
+    const imageMap = new Map<
+      string,
+      { fields: Record<string, RestDocField> }
+    >();
     for (const d of docs) {
       const photoId = extractStringField(d.fields, "flickr_photo_id");
       if (!photoId || imageMap.has(photoId)) continue;
@@ -330,7 +344,7 @@ export class FirestoreDataSource implements DataSource {
     for (const results of perFaceResults) {
       const seen = new Set<string>();
       for (const result of results) {
-        const key = result.flickr_photo_id!;
+        const key = result.flickr_photo_id ?? "";
         if (seen.has(key)) continue;
         seen.add(key);
         const entry = imageMap.get(key);
@@ -359,15 +373,53 @@ export class FirestoreDataSource implements DataSource {
     return (docSnap.data().tag_labels as string[]) ?? [];
   }
 
-  async getFacesForImage(_imageId: number): Promise<FaceInfo[]> {
-    // In Firestore, numeric image_id doesn't exist.
-    // Face detection lookup is done via flickr_photo_id.
-    return [];
+  async getFacesForImage(
+    _imageId: number,
+    flickrPhotoId?: string,
+  ): Promise<FaceInfo[]> {
+    if (!flickrPhotoId) return [];
+    const q = query(
+      collection(db, "face_detections"),
+      where("flickr_photo_id", "==", flickrPhotoId),
+    );
+    const snapshot = await getDocs(q);
+
+    const imgDoc = await getDoc(doc(db, "images", flickrPhotoId));
+    const imgData = imgDoc.exists() ? imgDoc.data() : null;
+    const width = (imgData?.width as number) ?? 0;
+    const height = (imgData?.height as number) ?? 0;
+
+    return snapshot.docs
+      .map((docSnap) => {
+        const data = docSnap.data();
+        if (!data.embedding) return null;
+        return {
+          face_id: docSnap.id,
+          bbox: [
+            data.bbox_x1 as number,
+            data.bbox_y1 as number,
+            data.bbox_x2 as number,
+            data.bbox_y2 as number,
+          ] as [number, number, number, number],
+          det_score: data.det_score as number,
+          embedding: data.embedding as number[],
+          image_width: width,
+          image_height: height,
+        };
+      })
+      .filter((f): f is FaceInfo => f != null);
   }
 
-  async getImageEmbedding(_imageId: number): Promise<Float32Array | null> {
-    // In Firestore, embeddings are on the document itself, keyed by flickr_photo_id.
-    return null;
+  async getImageEmbedding(
+    _imageId: number,
+    flickrPhotoId?: string,
+  ): Promise<Float32Array | null> {
+    if (!flickrPhotoId) return null;
+    const docSnap = await getDoc(doc(db, "images", flickrPhotoId));
+    if (!docSnap.exists()) return null;
+    const embedding = docSnap.data().embedding;
+    if (!embedding) return null;
+    return new Float32Array(embedding as number[]);
   }
 }
 
