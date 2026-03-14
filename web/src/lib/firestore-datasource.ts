@@ -9,6 +9,7 @@ import {
 import type { FaceInfo, SearchResult } from "../types";
 import type { DataSource, SearchOptions } from "./datasource";
 import { auth, db } from "./firebase";
+import { loadVoronoiCentroids, selectTopPartitions } from "./search";
 
 /**
  * Firestore vector search via REST API.
@@ -63,6 +64,18 @@ function extractNumberField(
   return 0;
 }
 
+/**
+ * Convert Firestore VectorValue or plain array to number[].
+ * Firestore SDK returns Vector fields as VectorValue objects with a toArray() method.
+ */
+function toNumberArray(value: unknown): number[] {
+  if (Array.isArray(value)) return value as number[];
+  if (value && typeof value === "object" && "toArray" in value) {
+    return (value as { toArray(): number[] }).toArray();
+  }
+  return [];
+}
+
 function extractDocId(name: string): string {
   // name format: projects/{proj}/databases/{db}/documents/{collection}/{docId}
   return name.split("/").pop() ?? "";
@@ -110,9 +123,14 @@ function buildVectorQueryBody(
           },
         };
       } else if (f.op === "ARRAY_CONTAINS_ANY") {
+        const arr = f.value as (string | number)[];
         value = {
           arrayValue: {
-            values: (f.value as string[]).map((v) => ({ stringValue: v })),
+            values: arr.map((v) =>
+              typeof v === "number"
+                ? { integerValue: String(v) }
+                : { stringValue: v },
+            ),
           },
         };
       } else {
@@ -258,20 +276,55 @@ export class FirestoreDataSource implements DataSource {
     options: SearchOptions,
   ): Promise<SearchResult[]> {
     const filters: { field: string; op: string; value: unknown }[] = [];
+    let clientEventFilter: Set<string> | null = null;
 
-    if (options.eventNames && options.eventNames.length > 0) {
-      filters.push({
-        field: "event_name",
-        op: "IN",
-        value: options.eventNames.slice(0, 30),
-      });
+    // Voronoi pre-filtering: use ARRAY_CONTAINS_ANY on voronoi_partition_ids
+    const useVoronoi = options.useVoronoi !== false;
+    if (useVoronoi) {
+      const centroids = await loadVoronoiCentroids();
+      if (centroids.length > 0) {
+        const partitionIds = selectTopPartitions(faceEmbedding, centroids, 5);
+        filters.push({
+          field: "voronoi_partition_ids",
+          op: "ARRAY_CONTAINS_ANY",
+          value: partitionIds,
+        });
+        // Firestore cannot combine IN + ARRAY_CONTAINS_ANY,
+        // so event_name filter must be done client-side
+        if (options.eventNames && options.eventNames.length > 0) {
+          clientEventFilter = new Set(options.eventNames);
+        }
+      } else {
+        // Fallback: no centroids available, use event filter in query
+        if (options.eventNames && options.eventNames.length > 0) {
+          filters.push({
+            field: "event_name",
+            op: "IN",
+            value: options.eventNames.slice(0, 30),
+          });
+        }
+      }
+    } else {
+      // Full scan mode: no Voronoi filter, use event filter in query
+      if (options.eventNames && options.eventNames.length > 0) {
+        filters.push({
+          field: "event_name",
+          op: "IN",
+          value: options.eventNames.slice(0, 30),
+        });
+      }
     }
+
+    // Request more results when client-side filtering is needed
+    const queryLimit = clientEventFilter
+      ? (options.limit + options.offset) * 5
+      : options.limit + options.offset;
 
     const docs = await runVectorQuery(
       "face_detections",
       "embedding",
       faceEmbedding,
-      options.limit + options.offset,
+      queryLimit,
       filters.length > 0 ? filters : undefined,
     );
 
@@ -309,13 +362,21 @@ export class FirestoreDataSource implements DataSource {
     );
 
     // Preserve order from vector search
-    const orderedResults: SearchResult[] = [];
+    let orderedResults: SearchResult[] = [];
     for (const photoId of photoIds) {
       const r = results.find((r) => r.flickr_photo_id === photoId);
       if (r) orderedResults.push(r);
     }
 
-    return orderedResults.slice(options.offset);
+    // Client-side event filter when Voronoi + event filter are both active
+    if (clientEventFilter) {
+      const filterSet = clientEventFilter;
+      orderedResults = orderedResults.filter((r) =>
+        filterSet.has(r.event_name),
+      );
+    }
+
+    return orderedResults.slice(options.offset, options.offset + options.limit);
   }
 
   async searchByMultipleFaceEmbeddings(
@@ -402,7 +463,7 @@ export class FirestoreDataSource implements DataSource {
             data.bbox_y2 as number,
           ] as [number, number, number, number],
           det_score: data.det_score as number,
-          embedding: data.embedding as number[],
+          embedding: toNumberArray(data.embedding),
           image_width: width,
           image_height: height,
         };
@@ -419,7 +480,7 @@ export class FirestoreDataSource implements DataSource {
     if (!docSnap.exists()) return null;
     const embedding = docSnap.data().embedding;
     if (!embedding) return null;
-    return new Float32Array(embedding as number[]);
+    return new Float32Array(toNumberArray(embedding));
   }
 }
 
@@ -455,7 +516,7 @@ export class FirestoreDataSourceExtended extends FirestoreDataSource {
             data.bbox_y2 as number,
           ] as [number, number, number, number],
           det_score: data.det_score as number,
-          embedding: data.embedding as number[],
+          embedding: toNumberArray(data.embedding),
           image_width: width,
           image_height: height,
         };
@@ -470,6 +531,6 @@ export class FirestoreDataSourceExtended extends FirestoreDataSource {
     if (!docSnap.exists()) return null;
     const embedding = docSnap.data().embedding;
     if (!embedding) return null;
-    return new Float32Array(embedding as number[]);
+    return new Float32Array(toNumberArray(embedding));
   }
 }

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { EventFilter } from "./components/EventFilter";
 import { Gallery } from "./components/Gallery";
 import { ImageUpload } from "./components/ImageUpload";
@@ -438,6 +438,26 @@ export default function App() {
     search.searchByFaces(activeFaceEmbeddings, search.selectedEvents);
   }, [activeFaceEmbeddings, search]);
 
+  // Auto re-search when fullScan toggle changes while face query is active
+  const activeFaceEmbeddingsRef = React.useRef(activeFaceEmbeddings);
+  activeFaceEmbeddingsRef.current = activeFaceEmbeddings;
+  const searchRef = React.useRef(search);
+  searchRef.current = search;
+  const prevFullScanRef = React.useRef(search.fullScan);
+  useEffect(() => {
+    if (prevFullScanRef.current !== search.fullScan) {
+      prevFullScanRef.current = search.fullScan;
+      const embs = activeFaceEmbeddingsRef.current;
+      if (embs && embs.length > 0) {
+        searchRef.current.searchByFaces(
+          embs,
+          searchRef.current.selectedEvents,
+          search.fullScan,
+        );
+      }
+    }
+  }, [search.fullScan]);
+
   const handleEventsChange = useCallback(
     (events: string[]) => {
       search.setSelectedEvents(events);
@@ -604,6 +624,26 @@ export default function App() {
             onSearchAsImage={handleSearchFaceAsImage}
             onReSearchByFaces={handleReSearchByFaces}
           />
+        )}
+
+        {activeFaceEmbeddings && activeFaceEmbeddings.length > 0 && (
+          <label
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "0.4rem",
+              fontSize: "0.85rem",
+              padding: "0.25rem 0",
+              cursor: "pointer",
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={search.fullScan}
+              onChange={(e) => search.setFullScan(e.target.checked)}
+            />
+            全件スキャン（Voronoiフィルタをバイパス）
+          </label>
         )}
 
         <EventFilter

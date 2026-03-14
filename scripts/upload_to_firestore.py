@@ -184,7 +184,7 @@ def upload_face_detections(
             face_id, image_id, model_name,
             bbox_x1, bbox_y1, bbox_x2, bbox_y2,
             det_score, age, gender, embedding,
-            person_label, cluster_id
+            person_label, cluster_id, voronoi_partition_ids
         FROM face_detections
         ORDER BY image_id
     """).fetchall()
@@ -203,6 +203,7 @@ def upload_face_detections(
         "embedding",
         "person_label",
         "cluster_id",
+        "voronoi_partition_ids",
     ]
 
     print(f"Face detections: {len(rows)} documents to upload")
@@ -248,6 +249,10 @@ def upload_face_detections(
         embedding = data.pop("embedding")
         if embedding is not None:
             data["embedding"] = Vector(list(embedding))
+
+        partition_ids = data.get("voronoi_partition_ids")
+        if partition_ids is not None:
+            data["voronoi_partition_ids"] = list(partition_ids)
 
         doc_ref = fs_client.collection("face_detections").document(face_id)
         batch.set(doc_ref, data)
