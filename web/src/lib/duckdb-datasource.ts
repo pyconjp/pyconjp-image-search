@@ -2,7 +2,6 @@ import type { AsyncDuckDBConnection } from "@duckdb/duckdb-wasm";
 import type { DataSource, SearchOptions } from "./datasource";
 import type { ModelConfig } from "./models";
 import {
-  type SearchConfig,
   getEventNames as duckGetEventNames,
   getFacesForImage as duckGetFacesForImage,
   getImageEmbedding as duckGetImageEmbedding,
@@ -10,6 +9,7 @@ import {
   searchByEmbedding as duckSearchByEmbedding,
   searchByFaceEmbedding as duckSearchByFaceEmbedding,
   searchByMultipleFaceEmbeddings as duckSearchByMultipleFaceEmbeddings,
+  type SearchConfig,
 } from "./search";
 
 export class DuckDBDataSource implements DataSource {
@@ -37,10 +37,7 @@ export class DuckDBDataSource implements DataSource {
     );
   }
 
-  async searchByFaceEmbedding(
-    faceEmbedding: number[],
-    options: SearchOptions,
-  ) {
+  async searchByFaceEmbedding(faceEmbedding: number[], options: SearchOptions) {
     return duckSearchByFaceEmbedding(this.conn, faceEmbedding, options);
   }
 

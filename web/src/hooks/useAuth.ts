@@ -1,4 +1,10 @@
-import { GoogleAuthProvider, onAuthStateChanged, signInWithPopup, signOut as firebaseSignOut, type User } from "firebase/auth";
+import {
+  signOut as firebaseSignOut,
+  GoogleAuthProvider,
+  onAuthStateChanged,
+  signInWithPopup,
+  type User,
+} from "firebase/auth";
 import { useEffect, useState } from "react";
 import { auth } from "../lib/firebase";
 

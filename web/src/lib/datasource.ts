@@ -27,7 +27,13 @@ export interface DataSource {
 
   getTagNames(): Promise<string[]>;
 
-  getFacesForImage(imageId: number): Promise<FaceInfo[]>;
+  getFacesForImage(
+    imageId: number,
+    flickrPhotoId?: string,
+  ): Promise<FaceInfo[]>;
 
-  getImageEmbedding(imageId: number): Promise<Float32Array | null>;
+  getImageEmbedding(
+    imageId: number,
+    flickrPhotoId?: string,
+  ): Promise<Float32Array | null>;
 }
