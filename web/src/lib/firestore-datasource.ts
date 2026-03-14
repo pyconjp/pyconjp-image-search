@@ -189,6 +189,11 @@ async function runVectorQuery(
   });
 
   if (!resp.ok) {
+    if (resp.status === 429) {
+      throw new Error(
+        "Firestoreのクォータ上限に達しました。しばらく時間をおいてから再度お試しください。",
+      );
+    }
     const text = await resp.text();
     throw new Error(`Firestore query failed: ${resp.status} ${text}`);
   }

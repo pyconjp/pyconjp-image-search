@@ -451,26 +451,6 @@ export default function App() {
     search.searchByFaces(activeFaceEmbeddings, search.selectedEvents);
   }, [activeFaceEmbeddings, search]);
 
-  // Auto re-search when fullScan toggle changes while face query is active
-  const activeFaceEmbeddingsRef = React.useRef(activeFaceEmbeddings);
-  activeFaceEmbeddingsRef.current = activeFaceEmbeddings;
-  const searchRef = React.useRef(search);
-  searchRef.current = search;
-  const prevFullScanRef = React.useRef(search.fullScan);
-  useEffect(() => {
-    if (prevFullScanRef.current !== search.fullScan) {
-      prevFullScanRef.current = search.fullScan;
-      const embs = activeFaceEmbeddingsRef.current;
-      if (embs && embs.length > 0) {
-        searchRef.current.searchByFaces(
-          embs,
-          searchRef.current.selectedEvents,
-          search.fullScan,
-        );
-      }
-    }
-  }, [search.fullScan]);
-
   const handleEventsChange = useCallback(
     (events: string[]) => {
       search.setSelectedEvents(events);
@@ -640,31 +620,24 @@ export default function App() {
         )}
 
         {activeFaceEmbeddings && activeFaceEmbeddings.length > 0 && (
-          <label
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "0.4rem",
-              fontSize: "0.85rem",
-              padding: "0.25rem 0",
-              cursor: "pointer",
+          <button
+            type="button"
+            className="full-scan-btn"
+            disabled={search.isSearching}
+            onClick={() => {
+              const ok = window.confirm(
+                "全件スキャンはFirestoreのコストが高くなります。テスト目的で数回のみ使用してください。",
+              );
+              if (!ok) return;
+              search.searchByFaces(
+                activeFaceEmbeddings,
+                search.selectedEvents,
+                true,
+              );
             }}
           >
-            <input
-              type="checkbox"
-              checked={search.fullScan}
-              onChange={(e) => {
-                if (e.target.checked) {
-                  const ok = window.confirm(
-                    "全件スキャンはFirestoreのコストが高くなります。テスト目的で数回のみ使用してください。",
-                  );
-                  if (!ok) return;
-                }
-                search.setFullScan(e.target.checked);
-              }}
-            />
-            全件スキャン（Voronoiフィルタをバイパス）
-          </label>
+            全件スキャン
+          </button>
         )}
 
         <EventFilter
@@ -678,6 +651,15 @@ export default function App() {
           onChange={handleTagsChange}
         />
       </div>
+
+      {search.error && (
+        <div className="error-banner">
+          <span>{search.error}</span>
+          <button type="button" onClick={search.clearError}>
+            x
+          </button>
+        </div>
+      )}
 
       {search.message && <p className="search-message">{search.message}</p>}
 
