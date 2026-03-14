@@ -38,7 +38,7 @@ def load_voronoi_centroids(
     norms = np.linalg.norm(centroids, axis=1, keepdims=True)
     centroids = centroids / np.maximum(norms, 1e-8)
     _cached_centroids = centroids
-    return _cached_centroids
+    return centroids
 
 
 def select_top_partitions(
