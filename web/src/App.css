@@ -739,3 +739,28 @@ body {
   border-color: #1a1a2e;
   color: #1a1a2e;
 }
+
+/* ── Search loading spinner ──────────────────────────────── */
+.search-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 1rem;
+  color: #666;
+}
+
+.search-spinner {
+  width: 1.2rem;
+  height: 1.2rem;
+  border: 2px solid #ccc;
+  border-top-color: #333;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

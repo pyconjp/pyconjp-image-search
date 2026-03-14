@@ -331,12 +331,13 @@ export class FirestoreDataSource implements DataSource {
     // Group by flickr_photo_id, keeping the first (closest) occurrence
     const imageMap = new Map<
       string,
-      { fields: Record<string, RestDocField> }
+      { fields: Record<string, RestDocField>; distance: number }
     >();
     for (const d of docs) {
       const photoId = extractStringField(d.fields, "flickr_photo_id");
       if (!photoId || imageMap.has(photoId)) continue;
-      imageMap.set(photoId, { fields: d.fields });
+      const distance = extractNumberField(d.fields, "vector_distance");
+      imageMap.set(photoId, { fields: d.fields, distance });
     }
 
     // Fetch image details for the found photo IDs
@@ -348,6 +349,8 @@ export class FirestoreDataSource implements DataSource {
         const imgDoc = await getDoc(doc(db, "images", photoId));
         if (imgDoc.exists()) {
           const imgData = imgDoc.data();
+          const entry = imageMap.get(photoId);
+          const score = entry ? 1 - entry.distance : 0;
           results.push({
             id: 0,
             image_url: imgData.image_url as string,
@@ -355,7 +358,7 @@ export class FirestoreDataSource implements DataSource {
             event_year: imgData.event_year as number,
             album_title: (imgData.album_title as string) ?? null,
             flickr_photo_id: photoId,
-            score: 0,
+            score,
           });
         }
       }),

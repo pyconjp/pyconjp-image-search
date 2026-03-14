@@ -59,6 +59,7 @@ export default function App() {
   const [tagNames, setTagNames] = useState<string[]>([]);
   const [searchMode, setSearchMode] = useState<SearchMode>("text");
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
+  const previewAnchorRef = React.useRef<HTMLDivElement>(null);
   const [sourceImageUrl, setSourceImageUrl] = useState<string | null>(null);
   const [faces, setFaces] = useState<FaceInfo[]>([]);
   const [activeFaceEmbeddings, setActiveFaceEmbeddings] = useState<
@@ -129,6 +130,10 @@ export default function App() {
 
   const handleGallerySelect = useCallback((index: number) => {
     setSelectedIndex(index);
+    setTimeout(
+      () => previewAnchorRef.current?.scrollIntoView({ behavior: "smooth" }),
+      100,
+    );
   }, []);
 
   const handleClosePreview = useCallback(() => {
@@ -295,6 +300,10 @@ export default function App() {
       setSelectedIndex(null);
       setSearchMode("image");
       search.searchByFaces(embeddings, search.selectedEvents);
+      setTimeout(
+        () => previewAnchorRef.current?.scrollIntoView({ behavior: "smooth" }),
+        100,
+      );
     },
     [faces, search, selectedIndex],
   );
@@ -416,6 +425,10 @@ export default function App() {
       setSelectedIndex(null);
       setSearchMode("image");
       search.searchByFaces(mergedEmbeddings, search.selectedEvents);
+      setTimeout(
+        () => previewAnchorRef.current?.scrollIntoView({ behavior: "smooth" }),
+        100,
+      );
     },
     [faces, search, selectedIndex, activeFaceEmbeddings, sourceImageUrl],
   );
@@ -640,7 +653,15 @@ export default function App() {
             <input
               type="checkbox"
               checked={search.fullScan}
-              onChange={(e) => search.setFullScan(e.target.checked)}
+              onChange={(e) => {
+                if (e.target.checked) {
+                  const ok = window.confirm(
+                    "全件スキャンはFirestoreのコストが高くなります。テスト目的で数回のみ使用してください。",
+                  );
+                  if (!ok) return;
+                }
+                search.setFullScan(e.target.checked);
+              }}
             />
             全件スキャン（Voronoiフィルタをバイパス）
           </label>
@@ -660,6 +681,7 @@ export default function App() {
 
       {search.message && <p className="search-message">{search.message}</p>}
 
+      <div ref={previewAnchorRef} />
       {selectedIndex !== null && (
         <Preview
           results={search.results}
@@ -675,6 +697,13 @@ export default function App() {
           onFindSamePersons={handleFindSamePersons}
           onAddFacesToQuery={handleAddFacesToQuery}
         />
+      )}
+
+      {search.isSearching && (
+        <div className="search-loading">
+          <div className="search-spinner" />
+          <span>検索中...</span>
+        </div>
       )}
 
       <Gallery results={search.results} onSelect={handleGallerySelect} />
