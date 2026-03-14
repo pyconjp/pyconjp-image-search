@@ -1,10 +1,60 @@
 """Search queries against DuckDB."""
 
+import json
+from pathlib import Path
+
 import duckdb
 import numpy as np
 
 from pyconjp_image_search.manager.repository import _row_to_metadata
 from pyconjp_image_search.models import ImageMetadata
+
+# ── Voronoi centroid utilities ──────────────────────────────
+
+_cached_centroids: np.ndarray | None = None
+
+
+def load_voronoi_centroids(
+    path: str | Path = "data/voronoi_pivots.json",
+) -> np.ndarray:
+    """Load and cache Voronoi centroids from JSON file.
+
+    Returns normalized centroid matrix of shape (n_pivots, dim).
+    Returns empty array if file not found.
+    """
+    global _cached_centroids  # noqa: PLW0603
+    if _cached_centroids is not None:
+        return _cached_centroids
+
+    p = Path(path)
+    if not p.exists():
+        _cached_centroids = np.empty((0, 0), dtype=np.float32)
+        return _cached_centroids
+
+    with open(p) as f:
+        data = json.load(f)
+
+    centroids = np.array(data["centroids"], dtype=np.float32)
+    norms = np.linalg.norm(centroids, axis=1, keepdims=True)
+    centroids = centroids / np.maximum(norms, 1e-8)
+    _cached_centroids = centroids
+    return _cached_centroids
+
+
+def select_top_partitions(
+    query_embedding: np.ndarray | list[float],
+    centroids: np.ndarray,
+    top_k: int = 5,
+) -> list[int]:
+    """Select top-K nearest Voronoi partition IDs for a query embedding."""
+    if centroids.size == 0:
+        return []
+    q = np.array(query_embedding, dtype=np.float32)
+    q = q / max(np.linalg.norm(q), 1e-8)
+    similarities = centroids @ q
+    top_indices = np.argpartition(-similarities, top_k)[:top_k]
+    top_indices = top_indices[np.argsort(-similarities[top_indices])]
+    return top_indices.tolist()
 
 
 def get_event_names(conn: duckdb.DuckDBPyConnection) -> list[str]:
