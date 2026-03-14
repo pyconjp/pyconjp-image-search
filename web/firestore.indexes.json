@@ -76,6 +76,23 @@
           }
         }
       ]
+    },
+    {
+      "collectionGroup": "face_detections",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "voronoi_partition_ids",
+          "arrayConfig": "CONTAINS"
+        },
+        {
+          "fieldPath": "embedding",
+          "vectorConfig": {
+            "dimension": 512,
+            "flat": {}
+          }
+        }
+      ]
     }
   ],
   "fieldOverrides": []

@@ -181,6 +181,181 @@ export async function searchByFaceEmbedding(
   }));
 }
 
+// ── Voronoi search ──────────────────────────────────────
+
+export interface VoronoiCentroid {
+  partitionId: number;
+  centroid: number[];
+}
+
+let cachedCentroids: VoronoiCentroid[] | null = null;
+
+function cosineSimilarity(a: number[], b: number[]): number {
+  let dot = 0;
+  let normA = 0;
+  let normB = 0;
+  for (let i = 0; i < a.length; i++) {
+    dot += (a[i] as number) * (b[i] as number);
+    normA += (a[i] as number) * (a[i] as number);
+    normB += (b[i] as number) * (b[i] as number);
+  }
+  return dot / (Math.sqrt(normA) * Math.sqrt(normB));
+}
+
+export async function loadVoronoiCentroids(): Promise<VoronoiCentroid[]> {
+  if (cachedCentroids) return cachedCentroids;
+  try {
+    const resp = await fetch("/voronoi_pivots.json");
+    const data = (await resp.json()) as {
+      n_pivots: number;
+      dim: number;
+      centroids: number[][];
+    };
+    cachedCentroids = data.centroids.map((c, i) => ({
+      partitionId: i,
+      centroid: c,
+    }));
+    return cachedCentroids;
+  } catch {
+    return [];
+  }
+}
+
+export function selectTopPartitions(
+  queryEmbedding: number[],
+  centroids: VoronoiCentroid[],
+  topK: number,
+): number[] {
+  const scored = centroids.map((c) => ({
+    id: c.partitionId,
+    sim: cosineSimilarity(queryEmbedding, c.centroid),
+  }));
+  scored.sort((a, b) => b.sim - a.sim);
+  return scored.slice(0, topK).map((s) => s.id);
+}
+
+export async function searchByFaceEmbeddingVoronoi(
+  conn: AsyncDuckDBConnection,
+  faceEmbedding: number[],
+  options: {
+    limit: number;
+    offset: number;
+    eventNames?: string[];
+    tagNames?: string[];
+    topK?: number;
+  },
+): Promise<SearchResult[]> {
+  const topK = options.topK ?? 5;
+  const centroids = await loadVoronoiCentroids();
+  if (centroids.length === 0) {
+    return searchByFaceEmbedding(conn, faceEmbedding, options);
+  }
+
+  const partitionIds = selectTopPartitions(faceEmbedding, centroids, topK);
+  const vecStr = `[${faceEmbedding.join(",")}]`;
+  const partitionList = partitionIds.join(",");
+
+  let whereClause = `f.model_name = '${FACE_MODEL_NAME}'`;
+  whereClause += ` AND list_has_any(f.voronoi_partition_ids, [${partitionList}]::INTEGER[])`;
+  if (options.eventNames && options.eventNames.length > 0) {
+    const escaped = options.eventNames.map((n) => `'${n.replace(/'/g, "''")}'`);
+    whereClause += ` AND i.event_name IN (${escaped.join(",")})`;
+  }
+
+  let tagJoin = "";
+  if (options.tagNames && options.tagNames.length > 0) {
+    const escapedTags = options.tagNames.map(
+      (t) => `'${t.replace(/'/g, "''")}'`,
+    );
+    tagJoin = `JOIN (SELECT DISTINCT image_id FROM data.object_detections WHERE label IN (${escapedTags.join(",")})) od ON od.image_id = i.id`;
+  }
+
+  const sql = `
+    SELECT
+      i.id, i.image_url, i.event_name, i.event_year,
+      i.album_title, i.flickr_photo_id,
+      MAX(list_cosine_similarity(f.embedding, ${vecStr}::FLOAT[512])) AS score
+    FROM data.face_detections f
+    JOIN data.images i ON i.id = f.image_id
+    ${tagJoin}
+    WHERE ${whereClause}
+    GROUP BY i.id, i.image_url, i.event_name, i.event_year, i.album_title, i.flickr_photo_id
+    ORDER BY score DESC
+    LIMIT ${options.limit}
+    OFFSET ${options.offset}
+  `;
+
+  const result = await conn.query(sql);
+  const rows = result.toArray();
+  return rows.map((row) => ({
+    id: Number(row.id),
+    image_url: String(row.image_url),
+    event_name: String(row.event_name),
+    event_year: Number(row.event_year),
+    album_title: row.album_title ? String(row.album_title) : null,
+    flickr_photo_id: row.flickr_photo_id ? String(row.flickr_photo_id) : null,
+    score: Number(row.score),
+  }));
+}
+
+export async function searchByMultipleFaceEmbeddingsVoronoi(
+  conn: AsyncDuckDBConnection,
+  faceEmbeddings: number[][],
+  options: {
+    limit: number;
+    offset: number;
+    eventNames?: string[];
+    tagNames?: string[];
+    topK?: number;
+  },
+): Promise<SearchResult[]> {
+  if (faceEmbeddings.length === 1 && faceEmbeddings[0]) {
+    return searchByFaceEmbeddingVoronoi(conn, faceEmbeddings[0], options);
+  }
+
+  const numFaces = faceEmbeddings.length;
+
+  const perFaceResults = await Promise.all(
+    faceEmbeddings.map((emb) =>
+      searchByFaceEmbeddingVoronoi(conn, emb, {
+        limit: options.limit * 10,
+        offset: 0,
+        eventNames: options.eventNames,
+        topK: options.topK,
+      }),
+    ),
+  );
+
+  const imageScoreMap = new Map<
+    number,
+    { result: SearchResult; scores: number[] }
+  >();
+  for (let fi = 0; fi < perFaceResults.length; fi++) {
+    for (const result of perFaceResults[fi] ?? []) {
+      let entry = imageScoreMap.get(result.id);
+      if (!entry) {
+        entry = { result, scores: new Array(numFaces).fill(-1) };
+        imageScoreMap.set(result.id, entry);
+      }
+      entry.scores[fi] = result.score;
+    }
+  }
+
+  const scored: { result: SearchResult; combinedScore: number }[] = [];
+  for (const { result, scores } of imageScoreMap.values()) {
+    const matchedCount = scores.filter((s) => s > 0).length;
+    if (matchedCount === 0) continue;
+    const avgScore =
+      scores.reduce((sum, s) => sum + Math.max(0, s), 0) / numFaces;
+    const matchRatio = matchedCount / numFaces;
+    const combinedScore = avgScore * (0.5 + 0.5 * matchRatio);
+    scored.push({ result: { ...result, score: combinedScore }, combinedScore });
+  }
+
+  scored.sort((a, b) => b.combinedScore - a.combinedScore);
+  return scored.slice(0, options.limit).map((s) => s.result);
+}
+
 export async function searchByMultipleFaceEmbeddings(
   conn: AsyncDuckDBConnection,
   faceEmbeddings: number[][],

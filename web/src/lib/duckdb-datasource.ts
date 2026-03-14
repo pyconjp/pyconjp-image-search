@@ -8,7 +8,9 @@ import {
   getTagNames as duckGetTagNames,
   searchByEmbedding as duckSearchByEmbedding,
   searchByFaceEmbedding as duckSearchByFaceEmbedding,
+  searchByFaceEmbeddingVoronoi as duckSearchByFaceEmbeddingVoronoi,
   searchByMultipleFaceEmbeddings as duckSearchByMultipleFaceEmbeddings,
+  searchByMultipleFaceEmbeddingsVoronoi as duckSearchByMultipleFaceEmbeddingsVoronoi,
   type SearchConfig,
 } from "./search";
 
@@ -38,6 +40,13 @@ export class DuckDBDataSource implements DataSource {
   }
 
   async searchByFaceEmbedding(faceEmbedding: number[], options: SearchOptions) {
+    if (options.useVoronoi !== false) {
+      return duckSearchByFaceEmbeddingVoronoi(
+        this.conn,
+        faceEmbedding,
+        options,
+      );
+    }
     return duckSearchByFaceEmbedding(this.conn, faceEmbedding, options);
   }
 
@@ -45,6 +54,13 @@ export class DuckDBDataSource implements DataSource {
     faceEmbeddings: number[][],
     options: SearchOptions,
   ) {
+    if (options.useVoronoi !== false) {
+      return duckSearchByMultipleFaceEmbeddingsVoronoi(
+        this.conn,
+        faceEmbeddings,
+        options,
+      );
+    }
     return duckSearchByMultipleFaceEmbeddings(
       this.conn,
       faceEmbeddings,

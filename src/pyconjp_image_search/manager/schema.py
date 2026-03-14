@@ -122,6 +122,8 @@ def _migrate(conn: duckdb.DuckDBPyConnection) -> None:
         "ALTER TABLE images ADD COLUMN IF NOT EXISTS flickr_photo_id VARCHAR",
         "ALTER TABLE images ADD COLUMN IF NOT EXISTS album_id VARCHAR",
         "ALTER TABLE images ADD COLUMN IF NOT EXISTS album_title VARCHAR",
+        # Voronoi partition IDs for face search optimization
+        "ALTER TABLE face_detections ADD COLUMN IF NOT EXISTS voronoi_partition_ids INTEGER[]",
     ]
     for sql in migrations:
         conn.execute(sql)

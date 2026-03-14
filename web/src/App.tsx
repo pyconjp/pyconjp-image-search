@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { EventFilter } from "./components/EventFilter";
 import { Gallery } from "./components/Gallery";
 import { ImageUpload } from "./components/ImageUpload";
@@ -59,6 +59,7 @@ export default function App() {
   const [tagNames, setTagNames] = useState<string[]>([]);
   const [searchMode, setSearchMode] = useState<SearchMode>("text");
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
+  const previewAnchorRef = React.useRef<HTMLDivElement>(null);
   const [sourceImageUrl, setSourceImageUrl] = useState<string | null>(null);
   const [faces, setFaces] = useState<FaceInfo[]>([]);
   const [activeFaceEmbeddings, setActiveFaceEmbeddings] = useState<
@@ -129,6 +130,10 @@ export default function App() {
 
   const handleGallerySelect = useCallback((index: number) => {
     setSelectedIndex(index);
+    setTimeout(
+      () => previewAnchorRef.current?.scrollIntoView({ behavior: "smooth" }),
+      100,
+    );
   }, []);
 
   const handleClosePreview = useCallback(() => {
@@ -295,6 +300,10 @@ export default function App() {
       setSelectedIndex(null);
       setSearchMode("image");
       search.searchByFaces(embeddings, search.selectedEvents);
+      setTimeout(
+        () => previewAnchorRef.current?.scrollIntoView({ behavior: "smooth" }),
+        100,
+      );
     },
     [faces, search, selectedIndex],
   );
@@ -416,6 +425,10 @@ export default function App() {
       setSelectedIndex(null);
       setSearchMode("image");
       search.searchByFaces(mergedEmbeddings, search.selectedEvents);
+      setTimeout(
+        () => previewAnchorRef.current?.scrollIntoView({ behavior: "smooth" }),
+        100,
+      );
     },
     [faces, search, selectedIndex, activeFaceEmbeddings, sourceImageUrl],
   );
@@ -606,6 +619,27 @@ export default function App() {
           />
         )}
 
+        {activeFaceEmbeddings && activeFaceEmbeddings.length > 0 && (
+          <button
+            type="button"
+            className="full-scan-btn"
+            disabled={search.isSearching}
+            onClick={() => {
+              const ok = window.confirm(
+                "全件スキャンはFirestoreのコストが高くなります。テスト目的で数回のみ使用してください。",
+              );
+              if (!ok) return;
+              search.searchByFaces(
+                activeFaceEmbeddings,
+                search.selectedEvents,
+                true,
+              );
+            }}
+          >
+            全件スキャン
+          </button>
+        )}
+
         <EventFilter
           eventNames={eventNames}
           selectedEvents={search.selectedEvents}
@@ -618,8 +652,18 @@ export default function App() {
         />
       </div>
 
+      {search.error && (
+        <div className="error-banner">
+          <span>{search.error}</span>
+          <button type="button" onClick={search.clearError}>
+            x
+          </button>
+        </div>
+      )}
+
       {search.message && <p className="search-message">{search.message}</p>}
 
+      <div ref={previewAnchorRef} />
       {selectedIndex !== null && (
         <Preview
           results={search.results}
@@ -635,6 +679,13 @@ export default function App() {
           onFindSamePersons={handleFindSamePersons}
           onAddFacesToQuery={handleAddFacesToQuery}
         />
+      )}
+
+      {search.isSearching && (
+        <div className="search-loading">
+          <div className="search-spinner" />
+          <span>検索中...</span>
+        </div>
       )}
 
       <Gallery results={search.results} onSelect={handleGallerySelect} />

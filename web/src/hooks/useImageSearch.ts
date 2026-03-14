@@ -17,11 +17,13 @@ export function useImageSearch(
   const [hasMore, setHasMore] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
   const [message, setMessage] = useState("");
+  const [error, setError] = useState<string | null>(null);
   const [selectedEvents, setSelectedEvents] = useState<string[]>([]);
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [currentFaceEmbeddings, setCurrentFaceEmbeddings] = useState<
     number[][] | null
   >(null);
+  const [fullScan, setFullScan] = useState(false);
 
   const searchByText = useCallback(
     async (query: string, eventNames?: string[]) => {
@@ -30,6 +32,7 @@ export function useImageSearch(
         setMessage("Please enter a search query.");
         return;
       }
+      setError(null);
       setIsSearching(true);
       try {
         const embedding = await encoder.encodeText(query);
@@ -47,6 +50,10 @@ export function useImageSearch(
         setHasMore(hits.length === PAGE_SIZE);
         setMessage(`Found ${hits.length} images for "${query}".`);
         if (eventNames) setSelectedEvents(eventNames);
+      } catch (err) {
+        const msg =
+          err instanceof Error ? err.message : "検索中にエラーが発生しました。";
+        setError(msg);
       } finally {
         setIsSearching(false);
       }
@@ -57,6 +64,7 @@ export function useImageSearch(
   const searchByImage = useCallback(
     async (imageBlob: Blob, eventNames?: string[]) => {
       if (!dataSource || !encoder) return;
+      setError(null);
       setIsSearching(true);
       try {
         const embedding = await encoder.encodeImage(imageBlob);
@@ -74,6 +82,10 @@ export function useImageSearch(
         setHasMore(hits.length === PAGE_SIZE);
         setMessage(`Found ${hits.length} similar images.`);
         if (eventNames) setSelectedEvents(eventNames);
+      } catch (err) {
+        const msg =
+          err instanceof Error ? err.message : "検索中にエラーが発生しました。";
+        setError(msg);
       } finally {
         setIsSearching(false);
       }
@@ -84,6 +96,7 @@ export function useImageSearch(
   const searchByStoredEmbedding = useCallback(
     async (imageId: number, eventNames?: string[], flickrPhotoId?: string) => {
       if (!dataSource) return;
+      setError(null);
       setIsSearching(true);
       try {
         const embedding = await dataSource.getImageEmbedding(
@@ -108,6 +121,10 @@ export function useImageSearch(
         setHasMore(hits.length === PAGE_SIZE);
         setMessage(`Found ${hits.length} similar images.`);
         if (eventNames) setSelectedEvents(eventNames);
+      } catch (err) {
+        const msg =
+          err instanceof Error ? err.message : "検索中にエラーが発生しました。";
+        setError(msg);
       } finally {
         setIsSearching(false);
       }
@@ -118,6 +135,7 @@ export function useImageSearch(
   const searchByFace = useCallback(
     async (faceEmbedding: number[], eventNames?: string[]) => {
       if (!dataSource) return;
+      setError(null);
       setIsSearching(true);
       try {
         const events = eventNames ?? selectedEvents;
@@ -126,24 +144,36 @@ export function useImageSearch(
           offset: 0,
           eventNames: events.length > 0 ? events : undefined,
           tagNames: selectedTags.length > 0 ? selectedTags : undefined,
+          useVoronoi: !fullScan,
         });
         setResults(hits);
         setCurrentEmbedding(null);
         setCurrentFaceEmbeddings([faceEmbedding]);
         setOffset(PAGE_SIZE);
         setHasMore(hits.length === PAGE_SIZE);
-        setMessage(`Found ${hits.length} images with similar faces.`);
+        const mode = fullScan ? "(全件スキャン)" : "(Voronoi)";
+        setMessage(`Found ${hits.length} images with similar faces. ${mode}`);
         if (eventNames) setSelectedEvents(eventNames);
+      } catch (err) {
+        const msg =
+          err instanceof Error ? err.message : "検索中にエラーが発生しました。";
+        setError(msg);
       } finally {
         setIsSearching(false);
       }
     },
-    [dataSource, selectedEvents, selectedTags],
+    [dataSource, selectedEvents, selectedTags, fullScan],
   );
 
   const searchByFaces = useCallback(
-    async (faceEmbeddings: number[][], eventNames?: string[]) => {
+    async (
+      faceEmbeddings: number[][],
+      eventNames?: string[],
+      overrideFullScan?: boolean,
+    ) => {
       if (!dataSource || faceEmbeddings.length === 0) return;
+      const isFullScan = overrideFullScan ?? fullScan;
+      setError(null);
       setIsSearching(true);
       try {
         const events = eventNames ?? selectedEvents;
@@ -156,6 +186,7 @@ export function useImageSearch(
             offset: 0,
             eventNames: evNames,
             tagNames,
+            useVoronoi: !isFullScan,
           },
         );
         setResults(hits);
@@ -163,17 +194,22 @@ export function useImageSearch(
         setCurrentFaceEmbeddings(faceEmbeddings);
         setOffset(PAGE_SIZE);
         setHasMore(hits.length === PAGE_SIZE);
+        const mode = isFullScan ? "(全件スキャン)" : "(Voronoi)";
         const msg =
           faceEmbeddings.length === 1
-            ? `Found ${hits.length} images with similar faces.`
-            : `Found ${hits.length} images with all ${faceEmbeddings.length} faces.`;
+            ? `Found ${hits.length} images with similar faces. ${mode}`
+            : `Found ${hits.length} images with all ${faceEmbeddings.length} faces. ${mode}`;
         setMessage(msg);
         if (eventNames) setSelectedEvents(eventNames);
+      } catch (err) {
+        const msg =
+          err instanceof Error ? err.message : "検索中にエラーが発生しました。";
+        setError(msg);
       } finally {
         setIsSearching(false);
       }
     },
-    [dataSource, selectedEvents, selectedTags],
+    [dataSource, selectedEvents, selectedTags, fullScan],
   );
 
   const loadMore = useCallback(async () => {
@@ -183,13 +219,20 @@ export function useImageSearch(
 
     if (currentFaceEmbeddings) {
       // Face search load more
+      setError(null);
       setIsSearching(true);
       try {
         if (currentFaceEmbeddings.length === 1 && currentFaceEmbeddings[0]) {
           // Single face: offset-based pagination
           const hits = await dataSource.searchByFaceEmbedding(
             currentFaceEmbeddings[0],
-            { limit: PAGE_SIZE, offset, eventNames: evNames, tagNames },
+            {
+              limit: PAGE_SIZE,
+              offset,
+              eventNames: evNames,
+              tagNames,
+              useVoronoi: !fullScan,
+            },
           );
           setResults((prev) => [...prev, ...hits]);
           setOffset((prev) => prev + hits.length);
@@ -200,7 +243,13 @@ export function useImageSearch(
           const newLimit = offset + PAGE_SIZE;
           const hits = await dataSource.searchByMultipleFaceEmbeddings(
             currentFaceEmbeddings,
-            { limit: newLimit, offset: 0, eventNames: evNames, tagNames },
+            {
+              limit: newLimit,
+              offset: 0,
+              eventNames: evNames,
+              tagNames,
+              useVoronoi: !fullScan,
+            },
           );
           const hasNew = hits.length > results.length;
           setResults(hits);
@@ -208,6 +257,10 @@ export function useImageSearch(
           setHasMore(hasNew && hits.length === newLimit);
           setMessage(`Showing ${hits.length} images.`);
         }
+      } catch (err) {
+        const msg =
+          err instanceof Error ? err.message : "検索中にエラーが発生しました。";
+        setError(msg);
       } finally {
         setIsSearching(false);
       }
@@ -238,6 +291,7 @@ export function useImageSearch(
     selectedEvents,
     selectedTags,
     results.length,
+    fullScan,
   ]);
 
   return {
@@ -245,10 +299,14 @@ export function useImageSearch(
     hasMore,
     isSearching,
     message,
+    error,
+    clearError: () => setError(null),
     selectedEvents,
     setSelectedEvents,
     selectedTags,
     setSelectedTags,
+    fullScan,
+    setFullScan,
     searchByText,
     searchByImage,
     searchByStoredEmbedding,

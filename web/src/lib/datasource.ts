@@ -5,6 +5,7 @@ export interface SearchOptions {
   offset: number;
   eventNames?: string[];
   tagNames?: string[];
+  useVoronoi?: boolean;
 }
 
 export interface DataSource {
