@@ -17,53 +17,13 @@ export interface ModelConfig {
   useFp16: boolean;
 }
 
-export const MODEL_CONFIGS: ModelConfig[] = [
-  {
-    id: "siglip2-base",
-    label: "SigLIP 2 base",
-    onnxModelId: "onnx-community/siglip2-base-patch16-224-ONNX",
-    modelType: "siglip",
-    dbFileName: "pyconjp_image_search.duckdb",
-    modelName: "google/siglip2-base-patch16-224",
-    embeddingDim: 768,
-    useFp16: true,
-  },
-  {
-    id: "siglip2-large",
-    label: "SigLIP 2 Large",
-    onnxModelId: "onnx-community/siglip2-large-patch16-256-ONNX",
-    modelType: "siglip",
-    dbFileName: "pyconjp_image_search_siglip2_large.duckdb",
-    modelName: "google/siglip2-large-patch16-256",
-    embeddingDim: 1024,
-    useFp16: true,
-  },
-  {
-    id: "clip-l",
-    label: "CLIP-L",
-    onnxModelId: "Xenova/clip-vit-large-patch14",
-    modelType: "clip",
-    dbFileName: "pyconjp_image_search_clip.duckdb",
-    modelName: "openai/clip-vit-large-patch14",
-    embeddingDim: 768,
-    useFp16: false,
-  },
-];
-
-const STORAGE_KEY = "pyconjp-model-selection";
-
-export function getStoredModelId(): string | null {
-  return localStorage.getItem(STORAGE_KEY);
-}
-
-export function storeModelId(id: string): void {
-  localStorage.setItem(STORAGE_KEY, id);
-}
-
-export function clearStoredModelId(): void {
-  localStorage.removeItem(STORAGE_KEY);
-}
-
-export function getModelConfig(id: string): ModelConfig {
-  return MODEL_CONFIGS.find((m) => m.id === id) ?? MODEL_CONFIGS[0]!;
-}
+export const DEFAULT_CONFIG: ModelConfig = {
+  id: "siglip2-base",
+  label: "SigLIP 2 base",
+  onnxModelId: "onnx-community/siglip2-base-patch16-224-ONNX",
+  modelType: "siglip",
+  dbFileName: "pyconjp_image_search.duckdb",
+  modelName: "google/siglip2-base-patch16-224",
+  embeddingDim: 768,
+  useFp16: true,
+};

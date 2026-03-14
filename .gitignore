@@ -17,6 +17,8 @@ data/
 
 # Environment
 .env
+.env.development
+.env.production
 
 # IDE
 .vscode/

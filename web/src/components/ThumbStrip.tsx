@@ -13,14 +13,18 @@ export function ThumbStrip({ results, selectedIndex, onSelect }: Props) {
   return (
     <div className="thumb-strip">
       {results.map((result, index) => (
-        <img
+        <button
+          type="button"
           key={`${result.id}-${index}`}
-          src={flickrUrlResize(result.image_url, "q")}
-          alt={result.event_name}
           className={`thumb-strip-item ${index === selectedIndex ? "selected" : ""}`}
           onClick={() => onSelect(index)}
-          loading="lazy"
-        />
+        >
+          <img
+            src={flickrUrlResize(result.image_url, "q")}
+            alt={result.event_name}
+            loading="lazy"
+          />
+        </button>
       ))}
     </div>
   );

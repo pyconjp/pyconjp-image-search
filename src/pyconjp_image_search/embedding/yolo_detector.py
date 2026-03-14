@@ -3,7 +3,7 @@
 import uuid
 from pathlib import Path
 
-from ultralytics import YOLO
+from ultralytics import YOLO  # type: ignore[attr-defined]
 
 from pyconjp_image_search.config import YOLO_MODEL_NAME, YOLO_MODEL_PATH
 from pyconjp_image_search.models import ObjectDetection

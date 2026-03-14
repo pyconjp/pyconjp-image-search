@@ -10,12 +10,12 @@ export function GalleryItem({ result, onClick }: Props) {
   const thumbUrl = flickrUrlResize(result.image_url, "z");
 
   return (
-    <div className="gallery-item" onClick={onClick}>
+    <button type="button" className="gallery-item" onClick={onClick}>
       <img src={thumbUrl} alt={result.event_name} loading="lazy" />
       <div className="gallery-item-caption">
         <span className="score">{result.score.toFixed(3)}</span>
         <span className="event">{result.event_name}</span>
       </div>
-    </div>
+    </button>
   );
 }

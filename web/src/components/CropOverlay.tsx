@@ -133,6 +133,7 @@ export function CropOverlay({ imageRef, onCropChange }: Props) {
 
   return (
     <>
+      {/* biome-ignore lint/a11y/noStaticElementInteractions: crop overlay needs mouse interaction */}
       <div
         ref={overlayRef}
         className="crop-overlay"

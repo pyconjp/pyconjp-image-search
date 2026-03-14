@@ -425,6 +425,58 @@ YOLO11 による物体検出結果を保存します。
 | `object_count` | INTEGER | 検出された物体数 |
 | `processed_at` | TIMESTAMP | 処理日時 |
 
+## 顔検索の高速化（Voronoi パーティション）
+
+顔検索では 73,000 件以上の顔ベクトルを検索対象としますが、Voronoi 分割による事前フィルタリングにより検索対象を約 5% に絞り込み、検索速度を約 4〜5 倍に高速化しています。
+
+### セントロイドデータ
+
+`data/voronoi_pivots.json` に 256 個のセントロイド（512 次元）が保存されています。このファイルは別プロジェクト（[image-vector-poc](https://github.com/cmscom/image-vector-poc)）の notebook 102 で KMeans により生成された事前学習データです。
+
+Web アプリ用に `web/public/voronoi_pivots.json` にも同じファイルが配置されており、ブラウザから fetch で読み込まれます。セントロイドを更新した場合は両方のファイルを更新してください。
+
+### パーティション割り当ての実行
+
+顔データが追加・更新された場合、以下のスクリプトで各顔にパーティション ID を再割り当てします。
+
+```bash
+uv run scripts/assign_voronoi_partitions.py [--force]
+```
+
+| オプション | デフォルト | 説明 |
+|-----------|-----------|------|
+| `--db` | `pyconjp_image_search.duckdb` | DuckDB ファイルパス |
+| `--centroids` | `data/voronoi_pivots.json` | セントロイド JSON ファイル |
+| `--n-assign` | `2` | 各顔に割り当てるパーティション数 |
+| `--force` | - | 既存の割り当てを上書き再計算 |
+
+実行すると `face_detections` テーブルの `voronoi_partition_ids` カラムが更新されます。
+
+### DuckDB ファイルの反映
+
+スクリプト実行後、Web アプリ用の DuckDB ファイルを更新します。
+
+```bash
+# web/public/ はシンボリックリンクなので自動反映
+# web/dist/ へは手動コピー
+cp pyconjp_image_search.duckdb web/dist/
+```
+
+### Firestore への反映
+
+Firestore にデータを投入する場合、`voronoi_partition_ids` も自動的にアップロードされます。
+
+```bash
+uv run scripts/upload_to_firestore.py [--force]
+```
+
+### Web アプリでの動作
+
+- **デフォルト**: Voronoi 検索（上位 5 パーティションに絞り込み後、コサイン類似度で順位付け）
+- **全件スキャン**: 顔検索実行後に表示される「全件スキャン（Voronoi フィルタをバイパス）」チェックボックスで切り替え可能
+- 検索結果メッセージに「(Voronoi)」または「(全件スキャン)」と表示されます
+- DuckDB モード・Firestore モードの両方で Voronoi 検索が動作します
+
 ## 技術スタック
 
 ### バックエンド (Python)

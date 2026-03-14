@@ -30,7 +30,9 @@ from pyconjp_image_search.models import FaceDetection, ImageMetadata
 from pyconjp_image_search.search.query import (
     get_event_names,
     get_image_embedding,
+    load_voronoi_centroids,
     search_images_by_text,
+    select_top_partitions,
 )
 
 PAGE_SIZE = 20
@@ -595,6 +597,7 @@ def create_app() -> gr.Blocks:
         face_detections: list,
         selected_events: list[str],
         face_gallery_items: list,
+        use_voronoi: bool,
         evt: gr.EventData,
     ) -> tuple:
         """Search for similar faces when a face thumbnail is clicked."""
@@ -602,12 +605,18 @@ def create_app() -> gr.Blocks:
         if face_index is None or face_index >= len(face_detections):
             return _noop_12
         face = face_detections[face_index]
+        voronoi_ids = None
+        if use_voronoi:
+            centroids = load_voronoi_centroids()
+            if centroids.size > 0:
+                voronoi_ids = select_top_partitions(face.embedding, centroids)
         results = search_faces_by_embedding(
             conn_clip,
             face.embedding,
             INSIGHTFACE_MODEL_NAME,
             limit=PAGE_SIZE * 2,  # extra to account for dedup
             event_names=selected_events or None,
+            voronoi_partition_ids=voronoi_ids,
         )
         # Deduplicate by image_id (keep highest score per image)
         seen: dict[int, tuple[ImageMetadata, float]] = {}
@@ -618,7 +627,8 @@ def create_app() -> gr.Blocks:
                 seen[meta.id] = (meta, score)
         deduped = list(seen.values())
         gallery_items, new_metadata = _make_gallery_items(deduped)
-        msg = f"Found {len(deduped)} images with similar faces."
+        mode = "(Voronoi)" if use_voronoi and voronoi_ids else "(全件スキャン)"
+        msg = f"Found {len(deduped)} images with similar faces. {mode}"
         # Extract face crop path to show in Image Search upload
         face_crop_path = None
         if face_gallery_items and face_index < len(face_gallery_items):
@@ -642,16 +652,23 @@ def create_app() -> gr.Blocks:
     def _do_face_search_from_state(
         face_embedding_data,
         selected_events: list[str],
+        use_voronoi: bool,
     ) -> tuple:
         """Re-search by stored face embedding."""
         if face_embedding_data is None:
             return _noop_12
+        voronoi_ids = None
+        if use_voronoi:
+            centroids = load_voronoi_centroids()
+            if centroids.size > 0:
+                voronoi_ids = select_top_partitions(face_embedding_data, centroids)
         results = search_faces_by_embedding(
             conn_clip,
             face_embedding_data,
             INSIGHTFACE_MODEL_NAME,
             limit=PAGE_SIZE * 2,
             event_names=selected_events or None,
+            voronoi_partition_ids=voronoi_ids,
         )
         seen: dict[int, tuple[ImageMetadata, float]] = {}
         for _face_det, meta, score in results:
@@ -661,7 +678,8 @@ def create_app() -> gr.Blocks:
                 seen[meta.id] = (meta, score)
         deduped = list(seen.values())
         gallery_items, new_metadata = _make_gallery_items(deduped)
-        msg = f"Found {len(deduped)} images with similar faces."
+        mode = "(Voronoi)" if use_voronoi and voronoi_ids else "(全件スキャン)"
+        msg = f"Found {len(deduped)} images with similar faces. {mode}"
         return (
             gallery_items,
             msg,
@@ -945,6 +963,11 @@ def create_app() -> gr.Blocks:
                     )
                     image_btn = gr.Button("Search Similar")
                     face_search_btn = gr.Button("Search Same Person", visible=False)
+                    voronoi_toggle = gr.Checkbox(
+                        value=True,
+                        label="Voronoi フィルタ（高速検索）",
+                        info="OFFにすると全件スキャン",
+                    )
 
                 img_preview_image = gr.Image(
                     label="Preview",
@@ -1017,7 +1040,7 @@ def create_app() -> gr.Blocks:
                             None,
                             gr.update(visible=False),
                         )
-                    mc, model_name, embedder = _get_model_config(model_choice)
+                    mc, model_name, embedder, _edim = _get_model_config(model_choice)
                     query_emb = embedder.embed_images([Path(image_path)])
                     results = search_images_by_text(
                         mc,
@@ -1300,7 +1323,12 @@ def create_app() -> gr.Blocks:
         # Face Search: click face thumbnail → find same person
         text_face_gallery.select(
             fn=_do_face_search,
-            inputs=[text_face_detections_state, text_event_filter, text_face_gallery],
+            inputs=[
+                text_face_detections_state,
+                text_event_filter,
+                text_face_gallery,
+                voronoi_toggle,
+            ],
             outputs=_find_similar_outputs,
         ).then(
             fn=_on_close_preview,
@@ -1308,7 +1336,12 @@ def create_app() -> gr.Blocks:
         )
         img_face_gallery.select(
             fn=_do_face_search,
-            inputs=[img_face_detections_state, image_event_filter, img_face_gallery],
+            inputs=[
+                img_face_detections_state,
+                image_event_filter,
+                img_face_gallery,
+                voronoi_toggle,
+            ],
             outputs=_find_similar_outputs,
         ).then(
             fn=_on_close_preview,
@@ -1318,7 +1351,7 @@ def create_app() -> gr.Blocks:
         # Re-search by stored face embedding
         face_search_btn.click(
             fn=_do_face_search_from_state,
-            inputs=[face_embedding_state, image_event_filter],
+            inputs=[face_embedding_state, image_event_filter, voronoi_toggle],
             outputs=_find_similar_outputs,
         ).then(
             fn=_on_close_preview,

@@ -105,12 +105,16 @@ def search_faces_by_embedding(
     model_name: str,
     limit: int = 20,
     event_names: list[str] | None = None,
+    voronoi_partition_ids: list[int] | None = None,
 ) -> list[tuple[FaceDetection, ImageMetadata, float]]:
     """Search faces by cosine similarity to a query embedding."""
     query_vec = query_embedding.flatten().tolist()
     params: list = [query_vec, model_name]
 
     where_clauses = ["f.model_name = ?"]
+    if voronoi_partition_ids:
+        ids_str = ",".join(str(i) for i in voronoi_partition_ids)
+        where_clauses.append(f"list_has_any(f.voronoi_partition_ids, [{ids_str}]::INTEGER[])")
     if event_names:
         placeholders = ", ".join(["?"] * len(event_names))
         where_clauses.append(f"i.event_name IN ({placeholders})")
