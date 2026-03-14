@@ -128,8 +128,7 @@ def upload_images(
         existing_count = count_result[0][0].value if count_result else 0
         if existing_count >= len(rows):
             print(
-                f"  All {existing_count} images already exist, skipping"
-                " (use --force to overwrite)"
+                f"  All {existing_count} images already exist, skipping (use --force to overwrite)"
             )
             for row in rows:
                 data = dict(zip(columns, row))

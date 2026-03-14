@@ -661,9 +661,7 @@ def create_app() -> gr.Blocks:
         if use_voronoi:
             centroids = load_voronoi_centroids()
             if centroids.size > 0:
-                voronoi_ids = select_top_partitions(
-                    face_embedding_data, centroids
-                )
+                voronoi_ids = select_top_partitions(face_embedding_data, centroids)
         results = search_faces_by_embedding(
             conn_clip,
             face_embedding_data,

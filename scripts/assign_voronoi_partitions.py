@@ -99,9 +99,10 @@ def update_database(
     """Update voronoi_partition_ids in face_detections table."""
     # Check if already assigned
     if not force:
-        count = conn.execute(
+        row = conn.execute(
             "SELECT COUNT(*) FROM face_detections WHERE voronoi_partition_ids IS NOT NULL"
-        ).fetchone()[0]
+        ).fetchone()
+        count = row[0] if row else 0
         if count > 0:
             print(f"Already {count} faces with partition IDs. Use --force to reassign.")
             return
@@ -126,9 +127,10 @@ def update_database(
         print(f"  Updated {done}/{total} faces ({elapsed:.1f}s)")
 
     # Verify
-    count = conn.execute(
+    row = conn.execute(
         "SELECT COUNT(*) FROM face_detections WHERE voronoi_partition_ids IS NOT NULL"
-    ).fetchone()[0]
+    ).fetchone()
+    count = row[0] if row else 0
     print(f"Verified: {count} faces now have voronoi_partition_ids")
 
 

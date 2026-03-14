@@ -114,9 +114,7 @@ def search_faces_by_embedding(
     where_clauses = ["f.model_name = ?"]
     if voronoi_partition_ids:
         ids_str = ",".join(str(i) for i in voronoi_partition_ids)
-        where_clauses.append(
-            f"list_has_any(f.voronoi_partition_ids, [{ids_str}]::INTEGER[])"
-        )
+        where_clauses.append(f"list_has_any(f.voronoi_partition_ids, [{ids_str}]::INTEGER[])")
     if event_names:
         placeholders = ", ".join(["?"] * len(event_names))
         where_clauses.append(f"i.event_name IN ({placeholders})")
