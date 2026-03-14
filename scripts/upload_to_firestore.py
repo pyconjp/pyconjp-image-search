@@ -119,13 +119,31 @@ def upload_images(
             id_to_photo[data["id"]] = data["flickr_photo_id"]
         return id_to_photo
 
-    # Get existing document IDs to skip (unless --force)
-    existing_ids = set()
+    # Check existing documents efficiently
+    existing_ids: set[str] = set()
     if not force:
-        for doc in fs_client.collection("images").select([]).stream():
-            existing_ids.add(doc.id)
-        if existing_ids:
-            print(f"  Found {len(existing_ids)} existing images, skipping duplicates")
+        # First, cheap count check (1 read)
+        count_query = fs_client.collection("images").count()
+        count_result = count_query.get()
+        existing_count = count_result[0][0].value if count_result else 0
+        if existing_count >= len(rows):
+            print(
+                f"  All {existing_count} images already exist, skipping"
+                " (use --force to overwrite)"
+            )
+            for row in rows:
+                data = dict(zip(columns, row))
+                id_to_photo[data["id"]] = data["flickr_photo_id"]
+            return id_to_photo
+        if existing_count > 0:
+            # Need to find which ones exist to skip them
+            print(
+                f"  Found {existing_count} existing images,"
+                f" checking IDs to upload remaining"
+                f" {len(rows) - existing_count}..."
+            )
+            for d in fs_client.collection("images").select([]).stream():
+                existing_ids.add(d.id)
     else:
         print("  Force mode: overwriting existing documents")
 
@@ -157,14 +175,15 @@ def upload_images(
 
         if batch_count >= BATCH_LIMIT:
             batch.commit()
-            print(f"  Committed {i + 1 - skipped}/{len(rows) - skipped} images")
+            print(f"  Committed {i + 1}/{len(rows)} images")
             time.sleep(SLEEP_SECONDS)
             batch = fs_client.batch()
             batch_count = 0
 
     if batch_count > 0:
         batch.commit()
-    print(f"  Completed: {len(rows) - skipped} images uploaded ({skipped} already existed)")
+    uploaded = len(rows) - skipped
+    print(f"  Completed: {uploaded} images uploaded ({skipped} skipped)")
 
     return id_to_photo
 
@@ -211,13 +230,28 @@ def upload_face_detections(
     if dry_run:
         return
 
-    # Get existing document IDs to skip (unless --force)
-    existing_ids = set()
+    # Check existing documents efficiently
+    existing_ids: set[str] = set()
     if not force:
-        for doc in fs_client.collection("face_detections").select([]).stream():
-            existing_ids.add(doc.id)
-        if existing_ids:
-            print(f"  Found {len(existing_ids)} existing face detections, skipping duplicates")
+        # First, cheap count check (1 read)
+        count_query = fs_client.collection("face_detections").count()
+        count_result = count_query.get()
+        existing_count = count_result[0][0].value if count_result else 0
+        if existing_count >= len(rows):
+            print(
+                f"  All {existing_count} face detections already exist,"
+                " skipping (use --force to overwrite)"
+            )
+            return
+        if existing_count > 0:
+            # Need to find which ones exist to skip them
+            print(
+                f"  Found {existing_count} existing face detections,"
+                f" checking IDs to upload remaining"
+                f" {len(rows) - existing_count}..."
+            )
+            for d in fs_client.collection("face_detections").select([]).stream():
+                existing_ids.add(d.id)
     else:
         print("  Force mode: overwriting existing documents")
 
