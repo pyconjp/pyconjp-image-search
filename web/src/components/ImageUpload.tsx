@@ -8,6 +8,7 @@ interface Props {
   activeFaceEmbeddings: number[][] | null;
   onSearchAsImage: () => void;
   onReSearchByFaces: () => void;
+  onFullScan: () => void;
 }
 
 export function ImageUpload({
@@ -18,6 +19,7 @@ export function ImageUpload({
   activeFaceEmbeddings,
   onSearchAsImage,
   onReSearchByFaces,
+  onFullScan,
 }: Props) {
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -103,6 +105,14 @@ export function ImageUpload({
                 {activeFaceEmbeddings.length > 1
                   ? `Find Same ${activeFaceEmbeddings.length} Persons`
                   : "Find Same Person"}
+              </button>
+              <button
+                type="button"
+                className="full-scan-btn"
+                onClick={onFullScan}
+                disabled={isSearching}
+              >
+                全件スキャン
               </button>
             </div>
           )}
