@@ -2,11 +2,12 @@ import { type FormEvent, useState } from "react";
 
 interface Props {
   onSearch: (query: string) => void;
+  onFullScan: (query: string) => void;
   isSearching: boolean;
   disabled: boolean;
 }
 
-export function SearchBar({ onSearch, isSearching, disabled }: Props) {
+export function SearchBar({ onSearch, onFullScan, isSearching, disabled }: Props) {
   const [query, setQuery] = useState("");
 
   const handleSubmit = (e: FormEvent) => {
@@ -32,6 +33,18 @@ export function SearchBar({ onSearch, isSearching, disabled }: Props) {
         className="search-button"
       >
         {isSearching ? "Searching..." : "Search"}
+      </button>
+      <button
+        type="button"
+        disabled={disabled || isSearching || !query.trim()}
+        className="search-button full-scan-button"
+        onClick={() => {
+          if (query.trim()) {
+            onFullScan(query.trim());
+          }
+        }}
+      >
+        全件スキャン（Text）
       </button>
     </form>
   );

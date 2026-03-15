@@ -26,12 +26,13 @@ export function useImageSearch(
   const [fullScan, setFullScan] = useState(false);
 
   const searchByText = useCallback(
-    async (query: string, eventNames?: string[]) => {
+    async (query: string, eventNames?: string[], overrideFullScan?: boolean) => {
       if (!dataSource || !encoder) return;
       if (!query.trim()) {
         setMessage("Please enter a search query.");
         return;
       }
+      const isFullScan = overrideFullScan ?? fullScan;
       setError(null);
       setIsSearching(true);
       try {
@@ -42,13 +43,15 @@ export function useImageSearch(
           offset: 0,
           eventNames: events.length > 0 ? events : undefined,
           tagNames: selectedTags.length > 0 ? selectedTags : undefined,
+          useVoronoi: !isFullScan,
         });
         setResults(hits);
         setCurrentEmbedding(embedding);
         setCurrentFaceEmbeddings(null);
         setOffset(PAGE_SIZE);
         setHasMore(hits.length === PAGE_SIZE);
-        setMessage(`Found ${hits.length} images for "${query}".`);
+        const mode = isFullScan ? "(全件スキャン)" : "(Voronoi)";
+        setMessage(`Found ${hits.length} images for "${query}". ${mode}`);
         if (eventNames) setSelectedEvents(eventNames);
       } catch (err) {
         const msg =
@@ -58,12 +61,13 @@ export function useImageSearch(
         setIsSearching(false);
       }
     },
-    [dataSource, encoder, selectedEvents, selectedTags],
+    [dataSource, encoder, selectedEvents, selectedTags, fullScan],
   );
 
   const searchByImage = useCallback(
-    async (imageBlob: Blob, eventNames?: string[]) => {
+    async (imageBlob: Blob, eventNames?: string[], overrideFullScan?: boolean) => {
       if (!dataSource || !encoder) return;
+      const isFullScan = overrideFullScan ?? fullScan;
       setError(null);
       setIsSearching(true);
       try {
@@ -74,13 +78,15 @@ export function useImageSearch(
           offset: 0,
           eventNames: events.length > 0 ? events : undefined,
           tagNames: selectedTags.length > 0 ? selectedTags : undefined,
+          useVoronoi: !isFullScan,
         });
         setResults(hits);
         setCurrentEmbedding(embedding);
         setCurrentFaceEmbeddings(null);
         setOffset(PAGE_SIZE);
         setHasMore(hits.length === PAGE_SIZE);
-        setMessage(`Found ${hits.length} similar images.`);
+        const mode = isFullScan ? "(全件スキャン)" : "(Voronoi)";
+        setMessage(`Found ${hits.length} similar images. ${mode}`);
         if (eventNames) setSelectedEvents(eventNames);
       } catch (err) {
         const msg =
@@ -90,7 +96,7 @@ export function useImageSearch(
         setIsSearching(false);
       }
     },
-    [dataSource, encoder, selectedEvents, selectedTags],
+    [dataSource, encoder, selectedEvents, selectedTags, fullScan],
   );
 
   const searchByStoredEmbedding = useCallback(
@@ -113,13 +119,15 @@ export function useImageSearch(
           offset: 0,
           eventNames: events.length > 0 ? events : undefined,
           tagNames: selectedTags.length > 0 ? selectedTags : undefined,
+          useVoronoi: !fullScan,
         });
         setResults(hits);
         setCurrentEmbedding(embedding);
         setCurrentFaceEmbeddings(null);
         setOffset(PAGE_SIZE);
         setHasMore(hits.length === PAGE_SIZE);
-        setMessage(`Found ${hits.length} similar images.`);
+        const mode = fullScan ? "(全件スキャン)" : "(Voronoi)";
+        setMessage(`Found ${hits.length} similar images. ${mode}`);
         if (eventNames) setSelectedEvents(eventNames);
       } catch (err) {
         const msg =
@@ -129,7 +137,7 @@ export function useImageSearch(
         setIsSearching(false);
       }
     },
-    [dataSource, selectedEvents, selectedTags],
+    [dataSource, selectedEvents, selectedTags, fullScan],
   );
 
   const searchByFace = useCallback(
@@ -275,6 +283,7 @@ export function useImageSearch(
         offset,
         eventNames: evNames,
         tagNames,
+        useVoronoi: !fullScan,
       });
       setResults((prev) => [...prev, ...hits]);
       setOffset((prev) => prev + hits.length);

@@ -189,6 +189,7 @@ export interface VoronoiCentroid {
 }
 
 let cachedCentroids: VoronoiCentroid[] | null = null;
+let cachedImageCentroids: VoronoiCentroid[] | null = null;
 
 function cosineSimilarity(a: number[], b: number[]): number {
   let dot = 0;
@@ -232,6 +233,93 @@ export function selectTopPartitions(
   }));
   scored.sort((a, b) => b.sim - a.sim);
   return scored.slice(0, topK).map((s) => s.id);
+}
+
+export async function loadImageVoronoiCentroids(): Promise<VoronoiCentroid[]> {
+  if (cachedImageCentroids) return cachedImageCentroids;
+  try {
+    const resp = await fetch("/image_voronoi_pivots.json");
+    const data = (await resp.json()) as {
+      n_pivots: number;
+      dim: number;
+      centroids: number[][];
+    };
+    cachedImageCentroids = data.centroids.map((c, i) => ({
+      partitionId: i,
+      centroid: c,
+    }));
+    return cachedImageCentroids;
+  } catch {
+    return [];
+  }
+}
+
+export async function searchByEmbeddingVoronoi(
+  conn: AsyncDuckDBConnection,
+  queryEmbedding: Float32Array,
+  options: {
+    limit: number;
+    offset: number;
+    eventNames?: string[];
+    tagNames?: string[];
+    topK?: number;
+  },
+  config: SearchConfig,
+): Promise<SearchResult[]> {
+  const topK = options.topK ?? 5;
+  const centroids = await loadImageVoronoiCentroids();
+  if (centroids.length === 0) {
+    return searchByEmbedding(conn, queryEmbedding, options, config);
+  }
+
+  const partitionIds = selectTopPartitions(
+    Array.from(queryEmbedding),
+    centroids,
+    topK,
+  );
+  const vecStr = `[${Array.from(queryEmbedding).join(",")}]`;
+  const partitionList = partitionIds.join(",");
+
+  let whereClause = `e.model_name = '${config.modelName}'`;
+  whereClause += ` AND list_has_any(e.voronoi_partition_ids, [${partitionList}]::INTEGER[])`;
+  if (options.eventNames && options.eventNames.length > 0) {
+    const escaped = options.eventNames.map((n) => `'${n.replace(/'/g, "''")}'`);
+    whereClause += ` AND i.event_name IN (${escaped.join(",")})`;
+  }
+
+  let tagJoin = "";
+  if (options.tagNames && options.tagNames.length > 0) {
+    const escapedTags = options.tagNames.map(
+      (t) => `'${t.replace(/'/g, "''")}'`,
+    );
+    tagJoin = `JOIN (SELECT DISTINCT image_id FROM data.object_detections WHERE label IN (${escapedTags.join(",")})) od ON od.image_id = i.id`;
+  }
+
+  const sql = `
+    SELECT
+      i.id, i.image_url, i.event_name, i.event_year,
+      i.album_title, i.flickr_photo_id,
+      list_cosine_similarity(e.embedding, ${vecStr}::FLOAT[${config.embeddingDim}]) AS score
+    FROM data.image_embeddings e
+    JOIN data.images i ON i.id = e.image_id
+    ${tagJoin}
+    WHERE ${whereClause}
+    ORDER BY score DESC
+    LIMIT ${options.limit}
+    OFFSET ${options.offset}
+  `;
+
+  const result = await conn.query(sql);
+  const rows = result.toArray();
+  return rows.map((row) => ({
+    id: Number(row.id),
+    image_url: String(row.image_url),
+    event_name: String(row.event_name),
+    event_year: Number(row.event_year),
+    album_title: row.album_title ? String(row.album_title) : null,
+    flickr_photo_id: row.flickr_photo_id ? String(row.flickr_photo_id) : null,
+    score: Number(row.score),
+  }));
 }
 
 export async function searchByFaceEmbeddingVoronoi(

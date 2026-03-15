@@ -55,6 +55,11 @@ def get_args() -> argparse.Namespace:
         action="store_true",
         help="Overwrite existing documents instead of skipping them",
     )
+    parser.add_argument(
+        "--update-voronoi",
+        action="store_true",
+        help="Update only voronoi_partition_ids on existing image documents",
+    )
     return parser.parse_args()
 
 
@@ -303,6 +308,46 @@ def upload_face_detections(
     print(f"  Completed: {len(rows) - skipped} face detections uploaded ({skipped} skipped)")
 
 
+def update_image_voronoi(
+    conn: duckdb.DuckDBPyConnection,
+    fs_client: Client,
+    dry_run: bool,
+) -> None:
+    """Update voronoi_partition_ids on existing image documents."""
+    rows = conn.execute(f"""
+        SELECT i.flickr_photo_id, e.voronoi_partition_ids
+        FROM images i
+        JOIN image_embeddings e ON e.image_id = i.id
+        WHERE e.model_name = '{SIGLIP_MODEL}'
+          AND e.voronoi_partition_ids IS NOT NULL
+        ORDER BY i.id
+    """).fetchall()
+
+    print(f"Image voronoi updates: {len(rows)} documents")
+
+    if dry_run:
+        return
+
+    batch = fs_client.batch()
+    batch_count = 0
+
+    for i, (flickr_photo_id, partition_ids) in enumerate(rows):
+        doc_ref = fs_client.collection("images").document(flickr_photo_id)
+        batch.update(doc_ref, {"voronoi_partition_ids": list(partition_ids)})
+        batch_count += 1
+
+        if batch_count >= BATCH_LIMIT:
+            batch.commit()
+            print(f"  Updated {i + 1}/{len(rows)} images")
+            time.sleep(SLEEP_SECONDS)
+            batch = fs_client.batch()
+            batch_count = 0
+
+    if batch_count > 0:
+        batch.commit()
+    print(f"  Completed: {len(rows)} image voronoi_partition_ids updated")
+
+
 def upload_metadata(
     conn: duckdb.DuckDBPyConnection,
     fs_client: Client,
@@ -360,6 +405,12 @@ def main() -> None:
         fs_client = Client(project=args.project)
     else:
         fs_client = None
+
+    if args.update_voronoi:
+        update_image_voronoi(conn, fs_client, args.dry_run)
+        conn.close()
+        print("\nDone!")
+        return
 
     id_to_event = _build_image_event_names(conn)
 

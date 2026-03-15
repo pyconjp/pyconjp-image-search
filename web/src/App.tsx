@@ -111,6 +111,23 @@ export default function App() {
     [search],
   );
 
+  const handleTextFullScan = useCallback(
+    (query: string) => {
+      const ok = window.confirm(
+        "全件スキャンはFirestoreのコストが高くなります。テスト目的で数回のみ使用してください。",
+      );
+      if (!ok) return;
+      setSelectedIndex(null);
+      setActiveFaceEmbeddings(null);
+      setSourceImageUrl((prev) => {
+        revokeIfBlobUrl(prev);
+        return null;
+      });
+      search.searchByText(query, search.selectedEvents, true);
+    },
+    [search],
+  );
+
   const handleImageUpload = useCallback(
     async (blob: Blob) => {
       setSelectedIndex(null);
@@ -446,6 +463,23 @@ export default function App() {
     }
   }, [sourceImageUrl, search, loadVisionModel]);
 
+  const handleFullScanAsImage = useCallback(async () => {
+    if (!sourceImageUrl) return;
+    const ok = window.confirm(
+      "全件スキャンはFirestoreのコストが高くなります。テスト目的で数回のみ使用してください。",
+    );
+    if (!ok) return;
+    try {
+      const resp = await fetch(sourceImageUrl);
+      const blob = await resp.blob();
+      setActiveFaceEmbeddings(null);
+      await loadVisionModel();
+      search.searchByImage(blob, search.selectedEvents, true);
+    } catch {
+      // ignore
+    }
+  }, [sourceImageUrl, search, loadVisionModel]);
+
   const handleReSearchByFaces = useCallback(() => {
     if (!activeFaceEmbeddings || activeFaceEmbeddings.length === 0) return;
     search.searchByFaces(activeFaceEmbeddings, search.selectedEvents);
@@ -604,6 +638,7 @@ export default function App() {
         {searchMode === "text" ? (
           <SearchBar
             onSearch={handleTextSearch}
+            onFullScan={handleTextFullScan}
             isSearching={search.isSearching}
             disabled={!isTextReady}
           />
@@ -615,6 +650,7 @@ export default function App() {
             sourceImageUrl={sourceImageUrl}
             activeFaceEmbeddings={activeFaceEmbeddings}
             onSearchAsImage={handleSearchFaceAsImage}
+            onFullScanAsImage={handleFullScanAsImage}
             onReSearchByFaces={handleReSearchByFaces}
             onFullScan={() => {
               if (!activeFaceEmbeddings) return;

@@ -7,6 +7,7 @@ import {
   getImageEmbedding as duckGetImageEmbedding,
   getTagNames as duckGetTagNames,
   searchByEmbedding as duckSearchByEmbedding,
+  searchByEmbeddingVoronoi as duckSearchByEmbeddingVoronoi,
   searchByFaceEmbedding as duckSearchByFaceEmbedding,
   searchByFaceEmbeddingVoronoi as duckSearchByFaceEmbeddingVoronoi,
   searchByMultipleFaceEmbeddings as duckSearchByMultipleFaceEmbeddings,
@@ -31,6 +32,14 @@ export class DuckDBDataSource implements DataSource {
     queryEmbedding: Float32Array,
     options: SearchOptions,
   ) {
+    if (options.useVoronoi !== false) {
+      return duckSearchByEmbeddingVoronoi(
+        this.conn,
+        queryEmbedding,
+        options,
+        this.searchConfig,
+      );
+    }
     return duckSearchByEmbedding(
       this.conn,
       queryEmbedding,
