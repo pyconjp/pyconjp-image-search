@@ -7,7 +7,12 @@ interface Props {
   disabled: boolean;
 }
 
-export function SearchBar({ onSearch, onFullScan, isSearching, disabled }: Props) {
+export function SearchBar({
+  onSearch,
+  onFullScan,
+  isSearching,
+  disabled,
+}: Props) {
   const [query, setQuery] = useState("");
 
   const handleSubmit = (e: FormEvent) => {

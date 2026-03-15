@@ -62,8 +62,7 @@ def fetch_image_embeddings(
     image_ids = [row[0] for row in result]
     embeddings = np.array([list(row[1]) for row in result], dtype=np.float32)
     print(
-        f"Fetched {len(image_ids)} image embeddings ({embeddings.shape})"
-        f" for model '{model_name}'"
+        f"Fetched {len(image_ids)} image embeddings ({embeddings.shape}) for model '{model_name}'"
     )
     return image_ids, embeddings
 
@@ -173,9 +172,7 @@ def print_partition_stats(conn: duckdb.DuckDBPyConnection, model_name: str) -> N
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Assign Voronoi partitions to image embeddings"
-    )
+    parser = argparse.ArgumentParser(description="Assign Voronoi partitions to image embeddings")
     parser.add_argument("--db", default="pyconjp_image_search.duckdb", help="DuckDB file path")
     parser.add_argument(
         "--centroids", default="data/image_voronoi_pivots.json", help="Centroids JSON file"

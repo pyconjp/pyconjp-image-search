@@ -26,7 +26,11 @@ export function useImageSearch(
   const [fullScan, setFullScan] = useState(false);
 
   const searchByText = useCallback(
-    async (query: string, eventNames?: string[], overrideFullScan?: boolean) => {
+    async (
+      query: string,
+      eventNames?: string[],
+      overrideFullScan?: boolean,
+    ) => {
       if (!dataSource || !encoder) return;
       if (!query.trim()) {
         setMessage("Please enter a search query.");
@@ -65,7 +69,11 @@ export function useImageSearch(
   );
 
   const searchByImage = useCallback(
-    async (imageBlob: Blob, eventNames?: string[], overrideFullScan?: boolean) => {
+    async (
+      imageBlob: Blob,
+      eventNames?: string[],
+      overrideFullScan?: boolean,
+    ) => {
       if (!dataSource || !encoder) return;
       const isFullScan = overrideFullScan ?? fullScan;
       setError(null);

@@ -65,9 +65,7 @@ def _search_images(
     if use_voronoi:
         centroids = load_image_voronoi_centroids()
         if centroids.size > 0:
-            partition_ids = select_top_partitions(
-                np.array(query_embedding).flatten(), centroids
-            )
+            partition_ids = select_top_partitions(np.array(query_embedding).flatten(), centroids)
             return search_images_by_text_voronoi(
                 conn,
                 query_embedding=query_embedding,
