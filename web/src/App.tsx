@@ -616,15 +616,8 @@ export default function App() {
             activeFaceEmbeddings={activeFaceEmbeddings}
             onSearchAsImage={handleSearchFaceAsImage}
             onReSearchByFaces={handleReSearchByFaces}
-          />
-        )}
-
-        {activeFaceEmbeddings && activeFaceEmbeddings.length > 0 && (
-          <button
-            type="button"
-            className="full-scan-btn"
-            disabled={search.isSearching}
-            onClick={() => {
+            onFullScan={() => {
+              if (!activeFaceEmbeddings) return;
               const ok = window.confirm(
                 "全件スキャンはFirestoreのコストが高くなります。テスト目的で数回のみ使用してください。",
               );
@@ -635,9 +628,7 @@ export default function App() {
                 true,
               );
             }}
-          >
-            全件スキャン
-          </button>
+          />
         )}
 
         <EventFilter
