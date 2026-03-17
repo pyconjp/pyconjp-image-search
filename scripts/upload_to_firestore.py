@@ -60,6 +60,12 @@ def get_args() -> argparse.Namespace:
         action="store_true",
         help="Update only voronoi_partition_ids on existing image documents",
     )
+    parser.add_argument(
+        "--skip",
+        type=int,
+        default=0,
+        help="Skip first N documents (to resume from where you left off)",
+    )
     return parser.parse_args()
 
 
@@ -312,6 +318,7 @@ def update_image_voronoi(
     conn: duckdb.DuckDBPyConnection,
     fs_client: Client,
     dry_run: bool,
+    skip: int = 0,
 ) -> None:
     """Update voronoi_partition_ids on existing image documents."""
     rows = conn.execute(f"""
@@ -328,6 +335,10 @@ def update_image_voronoi(
     if dry_run:
         return
 
+    if skip > 0:
+        print(f"  Skipping first {skip} documents, resuming from {skip + 1}")
+        rows = rows[skip:]
+
     batch = fs_client.batch()
     batch_count = 0
 
@@ -338,14 +349,14 @@ def update_image_voronoi(
 
         if batch_count >= BATCH_LIMIT:
             batch.commit()
-            print(f"  Updated {i + 1}/{len(rows)} images")
+            print(f"  Updated {skip + i + 1}/{skip + len(rows)} images")
             time.sleep(SLEEP_SECONDS)
             batch = fs_client.batch()
             batch_count = 0
 
     if batch_count > 0:
         batch.commit()
-    print(f"  Completed: {len(rows)} image voronoi_partition_ids updated")
+    print(f"  Completed: {len(rows)} image voronoi_partition_ids updated (skipped {skip})")
 
 
 def upload_metadata(
@@ -407,7 +418,7 @@ def main() -> None:
         fs_client = None
 
     if args.update_voronoi:
-        update_image_voronoi(conn, fs_client, args.dry_run)
+        update_image_voronoi(conn, fs_client, args.dry_run, skip=args.skip)
         conn.close()
         print("\nDone!")
         return
