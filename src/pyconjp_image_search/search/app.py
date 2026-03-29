@@ -30,8 +30,10 @@ from pyconjp_image_search.models import FaceDetection, ImageMetadata
 from pyconjp_image_search.search.query import (
     get_event_names,
     get_image_embedding,
+    load_image_voronoi_centroids,
     load_voronoi_centroids,
     search_images_by_text,
+    search_images_by_text_voronoi,
     select_top_partitions,
 )
 
@@ -47,6 +49,42 @@ def _flickr_url_resize(url: str, size: str = "z") -> str:
     Size suffixes: s=75sq, q=150sq, t=100, m=240, z=640, b=1024, h=1600, k=2048
     """
     return _FLICKR_SIZE_RE.sub(f"_{size}.jpg", url)
+
+
+def _search_images(
+    conn,
+    query_embedding,
+    model_name: str,
+    use_voronoi: bool,
+    limit: int = PAGE_SIZE,
+    offset: int = 0,
+    event_names: list[str] | None = None,
+    embedding_dim: int = 768,
+) -> list:
+    """Dispatch to Voronoi or full-scan image search."""
+    if use_voronoi:
+        centroids = load_image_voronoi_centroids()
+        if centroids.size > 0:
+            partition_ids = select_top_partitions(np.array(query_embedding).flatten(), centroids)
+            return search_images_by_text_voronoi(
+                conn,
+                query_embedding=query_embedding,
+                model_name=model_name,
+                voronoi_partition_ids=partition_ids,
+                limit=limit,
+                offset=offset,
+                event_names=event_names,
+                embedding_dim=embedding_dim,
+            )
+    return search_images_by_text(
+        conn,
+        query_embedding=query_embedding,
+        model_name=model_name,
+        limit=limit,
+        offset=offset,
+        event_names=event_names,
+        embedding_dim=embedding_dim,
+    )
 
 
 def _make_face_crops(
@@ -504,6 +542,7 @@ def create_app() -> gr.Blocks:
         metadata_list: list,
         selected_events: list[str],
         model_choice: str,
+        use_voronoi: bool = True,
     ) -> tuple:
         if selected_index is None or not metadata_list:
             return _noop_12
@@ -512,10 +551,11 @@ def create_app() -> gr.Blocks:
         emb = get_image_embedding(mc, meta.id, model_name)
         if emb is None:
             return _noop_12
-        results = search_images_by_text(
+        results = _search_images(
             mc,
             query_embedding=emb,
             model_name=model_name,
+            use_voronoi=use_voronoi,
             limit=PAGE_SIZE,
             offset=0,
             event_names=selected_events or None,
@@ -544,6 +584,7 @@ def create_app() -> gr.Blocks:
         crop_json: str,
         selected_events: list[str],
         model_choice: str,
+        use_voronoi: bool = True,
     ) -> tuple:
         if not crop_json:
             return _noop_12
@@ -566,10 +607,11 @@ def create_app() -> gr.Blocks:
 
         mc, model_name, embedder, edim = _get_model_config(model_choice)
         query_emb = embedder.embed_images([image_path])
-        results = search_images_by_text(
+        results = _search_images(
             mc,
             query_embedding=query_emb,
             model_name=model_name,
+            use_voronoi=use_voronoi,
             limit=PAGE_SIZE,
             offset=0,
             event_names=selected_events or None,
@@ -722,6 +764,11 @@ def create_app() -> gr.Blocks:
                         label="Filter by Event",
                     )
                     text_btn = gr.Button("Search")
+                    text_voronoi_toggle = gr.Checkbox(
+                        value=True,
+                        label="Voronoi フィルタ（高速検索）",
+                        info="OFFにすると全件スキャン",
+                    )
 
                 text_preview_image = gr.Image(
                     label="Preview",
@@ -779,7 +826,10 @@ def create_app() -> gr.Blocks:
                 text_face_detections_state = gr.State([])
 
                 def do_text_search(
-                    query: str, selected_events: list[str], model_choice: str
+                    query: str,
+                    selected_events: list[str],
+                    model_choice: str,
+                    use_voronoi: bool = True,
                 ) -> tuple:
                     if not query.strip():
                         return (
@@ -793,10 +843,11 @@ def create_app() -> gr.Blocks:
                         )
                     mc, model_name, embedder, edim = _get_model_config(model_choice)
                     query_emb = embedder.embed_text(query)
-                    results = search_images_by_text(
+                    results = _search_images(
                         mc,
                         query_embedding=query_emb,
                         model_name=model_name,
+                        use_voronoi=use_voronoi,
                         limit=PAGE_SIZE,
                         offset=0,
                         event_names=selected_events or None,
@@ -821,6 +872,7 @@ def create_app() -> gr.Blocks:
                     accumulated_meta: list,
                     query_emb_list,
                     model_choice: str,
+                    use_voronoi: bool = True,
                 ) -> tuple:
                     if query_emb_list is None:
                         return (
@@ -833,10 +885,11 @@ def create_app() -> gr.Blocks:
                         )
                     mc, model_name, _, edim = _get_model_config(model_choice)
                     query_emb = np.array(query_emb_list)
-                    results = search_images_by_text(
+                    results = _search_images(
                         mc,
                         query_embedding=query_emb,
                         model_name=model_name,
+                        use_voronoi=use_voronoi,
                         limit=PAGE_SIZE,
                         offset=offset,
                         event_names=selected_events or None,
@@ -857,7 +910,7 @@ def create_app() -> gr.Blocks:
 
                 text_btn.click(
                     fn=do_text_search,
-                    inputs=[text_input, text_event_filter, model_selector],
+                    inputs=[text_input, text_event_filter, model_selector, text_voronoi_toggle],
                     outputs=[
                         text_gallery,
                         text_info,
@@ -890,6 +943,7 @@ def create_app() -> gr.Blocks:
                         text_metadata_state,
                         text_embedding_state,
                         model_selector,
+                        text_voronoi_toggle,
                     ],
                     outputs=[
                         text_gallery,
@@ -1029,6 +1083,7 @@ def create_app() -> gr.Blocks:
                     image_path: str | None,
                     selected_events: list[str],
                     model_choice: str,
+                    use_voronoi: bool = True,
                 ) -> tuple:
                     if image_path is None:
                         return (
@@ -1042,10 +1097,11 @@ def create_app() -> gr.Blocks:
                         )
                     mc, model_name, embedder, _edim = _get_model_config(model_choice)
                     query_emb = embedder.embed_images([Path(image_path)])
-                    results = search_images_by_text(
+                    results = _search_images(
                         mc,
                         query_embedding=query_emb,
                         model_name=model_name,
+                        use_voronoi=use_voronoi,
                         limit=PAGE_SIZE,
                         offset=0,
                         event_names=selected_events or None,
@@ -1069,6 +1125,7 @@ def create_app() -> gr.Blocks:
                     accumulated_meta: list,
                     query_emb_list,
                     model_choice: str,
+                    use_voronoi: bool = True,
                 ) -> tuple:
                     if query_emb_list is None:
                         return (
@@ -1081,10 +1138,11 @@ def create_app() -> gr.Blocks:
                         )
                     mc, model_name, _, edim = _get_model_config(model_choice)
                     query_emb = np.array(query_emb_list)
-                    results = search_images_by_text(
+                    results = _search_images(
                         mc,
                         query_embedding=query_emb,
                         model_name=model_name,
+                        use_voronoi=use_voronoi,
                         limit=PAGE_SIZE,
                         offset=offset,
                         event_names=selected_events or None,
@@ -1105,7 +1163,7 @@ def create_app() -> gr.Blocks:
 
                 image_btn.click(
                     fn=do_image_search,
-                    inputs=[image_input, image_event_filter, model_selector],
+                    inputs=[image_input, image_event_filter, model_selector, voronoi_toggle],
                     outputs=[
                         image_gallery,
                         image_info,
@@ -1141,6 +1199,7 @@ def create_app() -> gr.Blocks:
                         image_metadata_state,
                         image_embedding_state,
                         model_selector,
+                        voronoi_toggle,
                     ],
                     outputs=[
                         image_gallery,
@@ -1274,6 +1333,7 @@ def create_app() -> gr.Blocks:
                 text_metadata_state,
                 text_event_filter,
                 model_selector,
+                text_voronoi_toggle,
             ],
             outputs=_find_similar_outputs,
         ).then(
@@ -1287,6 +1347,7 @@ def create_app() -> gr.Blocks:
                 image_metadata_state,
                 image_event_filter,
                 model_selector,
+                voronoi_toggle,
             ],
             outputs=_find_similar_outputs,
         ).then(
@@ -1301,7 +1362,7 @@ def create_app() -> gr.Blocks:
             outputs=[text_crop_data],
         ).then(
             fn=_do_search_cropped,
-            inputs=[text_crop_data, text_event_filter, model_selector],
+            inputs=[text_crop_data, text_event_filter, model_selector, text_voronoi_toggle],
             outputs=_find_similar_outputs,
         ).then(
             fn=_on_close_preview,
@@ -1313,7 +1374,7 @@ def create_app() -> gr.Blocks:
             outputs=[img_crop_data],
         ).then(
             fn=_do_search_cropped,
-            inputs=[img_crop_data, image_event_filter, model_selector],
+            inputs=[img_crop_data, image_event_filter, model_selector, voronoi_toggle],
             outputs=_find_similar_outputs,
         ).then(
             fn=_on_close_preview,

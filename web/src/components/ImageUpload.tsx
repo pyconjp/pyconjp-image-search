@@ -7,6 +7,7 @@ interface Props {
   sourceImageUrl: string | null;
   activeFaceEmbeddings: number[][] | null;
   onSearchAsImage: () => void;
+  onFullScanAsImage: () => void;
   onReSearchByFaces: () => void;
   onFullScan: () => void;
 }
@@ -18,6 +19,7 @@ export function ImageUpload({
   sourceImageUrl,
   activeFaceEmbeddings,
   onSearchAsImage,
+  onFullScanAsImage,
   onReSearchByFaces,
   onFullScan,
 }: Props) {
@@ -86,7 +88,7 @@ export function ImageUpload({
               : "Query image:"}
           </span>
           <img src={sourceImageUrl} alt="Search source" />
-          {activeFaceEmbeddings && (
+          {!activeFaceEmbeddings && (
             <div className="face-search-actions">
               <button
                 type="button"
@@ -98,22 +100,54 @@ export function ImageUpload({
               </button>
               <button
                 type="button"
-                className="face-action-btn active"
-                onClick={onReSearchByFaces}
-                disabled={isSearching}
-              >
-                {activeFaceEmbeddings.length > 1
-                  ? `Find Same ${activeFaceEmbeddings.length} Persons`
-                  : "Find Same Person"}
-              </button>
-              <button
-                type="button"
                 className="full-scan-btn"
-                onClick={onFullScan}
+                onClick={onFullScanAsImage}
                 disabled={isSearching}
               >
-                全件スキャン
+                全件スキャン（Image）
               </button>
+            </div>
+          )}
+          {activeFaceEmbeddings && (
+            <div className="face-search-actions">
+              <div className="face-search-row">
+                <button
+                  type="button"
+                  className="face-action-btn"
+                  onClick={onSearchAsImage}
+                  disabled={isSearching}
+                >
+                  Find Similar Images
+                </button>
+                <button
+                  type="button"
+                  className="full-scan-btn"
+                  onClick={onFullScanAsImage}
+                  disabled={isSearching}
+                >
+                  全件スキャン（Image）
+                </button>
+              </div>
+              <div className="face-search-row">
+                <button
+                  type="button"
+                  className="face-action-btn active"
+                  onClick={onReSearchByFaces}
+                  disabled={isSearching}
+                >
+                  {activeFaceEmbeddings.length > 1
+                    ? `Find Same ${activeFaceEmbeddings.length} Persons`
+                    : "Find Same Person"}
+                </button>
+                <button
+                  type="button"
+                  className="full-scan-btn"
+                  onClick={onFullScan}
+                  disabled={isSearching}
+                >
+                  全件スキャン（Person）
+                </button>
+              </div>
             </div>
           )}
         </div>

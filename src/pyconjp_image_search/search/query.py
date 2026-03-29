@@ -12,6 +12,7 @@ from pyconjp_image_search.models import ImageMetadata
 # ── Voronoi centroid utilities ──────────────────────────────
 
 _cached_centroids: np.ndarray | None = None
+_cached_image_centroids: np.ndarray | None = None
 
 
 def load_voronoi_centroids(
@@ -57,6 +58,33 @@ def select_top_partitions(
     return top_indices.tolist()
 
 
+def load_image_voronoi_centroids(
+    path: str | Path = "data/image_voronoi_pivots.json",
+) -> np.ndarray:
+    """Load and cache image Voronoi centroids from JSON file.
+
+    Returns normalized centroid matrix of shape (n_pivots, dim).
+    Returns empty array if file not found.
+    """
+    global _cached_image_centroids  # noqa: PLW0603
+    if _cached_image_centroids is not None:
+        return _cached_image_centroids
+
+    p = Path(path)
+    if not p.exists():
+        _cached_image_centroids = np.empty((0, 0), dtype=np.float32)
+        return _cached_image_centroids
+
+    with open(p) as f:
+        data = json.load(f)
+
+    centroids = np.array(data["centroids"], dtype=np.float32)
+    norms = np.linalg.norm(centroids, axis=1, keepdims=True)
+    centroids = centroids / np.maximum(norms, 1e-8)
+    _cached_image_centroids = centroids
+    return centroids
+
+
 def get_event_names(conn: duckdb.DuckDBPyConnection) -> list[str]:
     """Get distinct event names from the database."""
     rows = conn.execute("SELECT DISTINCT event_name FROM images ORDER BY event_name").fetchall()
@@ -92,6 +120,54 @@ def search_images_by_text(
     params: list = [query_vec, model_name]
 
     where_clauses = ["e.model_name = ?"]
+    if event_names:
+        placeholders = ", ".join(["?"] * len(event_names))
+        where_clauses.append(f"i.event_name IN ({placeholders})")
+        params.extend(event_names)
+
+    where_sql = " AND ".join(where_clauses)
+    params.extend([limit, offset])
+
+    rows = conn.execute(
+        f"""
+        SELECT i.*, list_cosine_similarity(e.embedding, ?::FLOAT[{embedding_dim}]) AS score
+        FROM image_embeddings e
+        JOIN images i ON i.id = e.image_id
+        WHERE {where_sql}
+        ORDER BY score DESC
+        LIMIT ?
+        OFFSET ?
+        """,
+        params,
+    ).fetchall()
+    results = []
+    for row in rows:
+        score = row[-1]
+        meta = _row_to_metadata(row[:-1])
+        results.append((meta, score))
+    return results
+
+
+def search_images_by_text_voronoi(
+    conn: duckdb.DuckDBPyConnection,
+    query_embedding: np.ndarray,
+    model_name: str,
+    voronoi_partition_ids: list[int],
+    limit: int = 20,
+    offset: int = 0,
+    event_names: list[str] | None = None,
+    embedding_dim: int = 768,
+) -> list[tuple[ImageMetadata, float]]:
+    """Search images with Voronoi partition filtering for faster retrieval."""
+    query_vec = query_embedding.flatten().tolist()
+    partition_list = ", ".join(str(pid) for pid in voronoi_partition_ids)
+
+    params: list = [query_vec, model_name]
+
+    where_clauses = [
+        "e.model_name = ?",
+        f"list_has_any(e.voronoi_partition_ids, [{partition_list}]::INTEGER[])",
+    ]
     if event_names:
         placeholders = ", ".join(["?"] * len(event_names))
         where_clauses.append(f"i.event_name IN ({placeholders})")
