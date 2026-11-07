@@ -170,7 +170,7 @@ uv run scripts/assign_voronoi_partitions.py [--force]
 ### Firestore へのデータ投入
 
 ```bash
-uv run scripts/upload_to_firestore.py [--dry-run]
+uv run scripts/upload_to_firestore.py [--dry-run] [--force] [--assume-uploaded]
 ```
 
 詳細は [web/FIREBASE.md](../web/FIREBASE.md) を参照。

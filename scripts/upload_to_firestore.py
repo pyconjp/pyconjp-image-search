@@ -16,21 +16,29 @@ Usage:
     cd /path/to/pyconjp-image-search
     uv run scripts/upload_to_firestore.py \
         [--db pyconjp_image_search.duckdb] \
-        [--project pyconjp-image-search] [--dry-run]
+        [--project pyconjp-image-search] [--dry-run] [--force] [--assume-uploaded]
+
+Uploaded document IDs are recorded in the DuckDB table ``firestore_uploads``,
+so later runs upload only new documents without reading from Firestore.
 """
 
 import argparse
 import sys
 import time
+from collections.abc import Iterable, Iterator
 from pathlib import Path
 
 import duckdb
+from firestore_upload_tracking import ensure_tracking_table, get_uploaded_ids, record_uploaded
 from google.cloud.firestore_v1 import Client
 from google.cloud.firestore_v1.vector import Vector
 
 SIGLIP_MODEL = "google/siglip2-base-patch16-224"
 BATCH_LIMIT = 500  # Firestore batch write limit
 SLEEP_SECONDS = 1  # Sleep between batch commits to avoid quota exceeded
+
+IMAGES = "images"
+FACE_DETECTIONS = "face_detections"
 
 
 def get_args() -> argparse.Namespace:
@@ -53,7 +61,16 @@ def get_args() -> argparse.Namespace:
     parser.add_argument(
         "--force",
         action="store_true",
-        help="Overwrite existing documents instead of skipping them",
+        help="Upload (overwrite) all documents, ignoring upload records",
+    )
+    parser.add_argument(
+        "--assume-uploaded",
+        action="store_true",
+        help=(
+            "When no upload records exist yet, record every document currently in DuckDB"
+            " as already uploaded instead of reading existing IDs from Firestore."
+            " Use only when Firestore is known to be in sync with DuckDB."
+        ),
     )
     parser.add_argument(
         "--update-voronoi",
@@ -85,13 +102,97 @@ def _build_image_event_names(conn: duckdb.DuckDBPyConnection) -> dict[int, str]:
     return {row[0]: row[1] for row in rows}
 
 
+def resolve_uploaded_ids(
+    conn: duckdb.DuckDBPyConnection,
+    fs_client: Client | None,
+    collection: str,
+    all_doc_ids: list[str],
+    *,
+    dry_run: bool,
+    force: bool,
+    assume_uploaded: bool,
+) -> set[str]:
+    """Return doc IDs to treat as already uploaded (to be skipped).
+
+    Normally this reads only the local DuckDB tracking table. When the table has
+    no records for the collection yet, it is bootstrapped once, either from
+    Firestore (one read per existing document) or, with --assume-uploaded, by
+    marking every current DuckDB document as uploaded (no reads).
+    """
+    if force:
+        print("  Force mode: uploading all documents")
+        return set()
+
+    uploaded = get_uploaded_ids(conn, collection)
+    if uploaded:
+        print(f"  {len(uploaded)} documents recorded as uploaded (no Firestore reads)")
+        return uploaded
+
+    if assume_uploaded:
+        print(
+            f"  No upload records yet: --assume-uploaded marks all {len(all_doc_ids)}"
+            " current documents as uploaded"
+        )
+        if not dry_run:
+            record_uploaded(conn, collection, all_doc_ids)
+        return set(all_doc_ids)
+
+    if dry_run:
+        print(
+            "  No upload records yet: the first real run reads all existing IDs from"
+            " Firestore once (or use --assume-uploaded)"
+        )
+        return set()
+
+    assert fs_client is not None
+    print("  No upload records yet: reading existing IDs from Firestore once...")
+    existing = {d.id for d in fs_client.collection(collection).select([]).stream()}
+    record_uploaded(conn, collection, existing)
+    print(f"  Recorded {len(existing)} existing documents")
+    return existing
+
+
+def commit_in_batches(
+    fs_client: Client,
+    conn: duckdb.DuckDBPyConnection,
+    collection: str,
+    docs: Iterable[tuple[str, dict]],
+    total: int,
+) -> int:
+    """Write docs in batches, recording each committed batch in DuckDB."""
+    batch = fs_client.batch()
+    batch_ids: list[str] = []
+    committed = 0
+
+    def flush() -> None:
+        nonlocal batch, batch_ids, committed
+        batch.commit()
+        record_uploaded(conn, collection, batch_ids)
+        committed += len(batch_ids)
+        print(f"  Committed {committed}/{total} {collection}")
+        batch = fs_client.batch()
+        batch_ids = []
+
+    for doc_id, data in docs:
+        batch.set(fs_client.collection(collection).document(doc_id), data)
+        batch_ids.append(doc_id)
+        if len(batch_ids) >= BATCH_LIMIT:
+            flush()
+            time.sleep(SLEEP_SECONDS)
+
+    if batch_ids:
+        flush()
+    return committed
+
+
 def upload_images(
     conn: duckdb.DuckDBPyConnection,
-    fs_client: Client,
+    fs_client: Client | None,
     dry_run: bool,
     *,
     force: bool = False,
-) -> dict[str, str]:
+    assume_uploaded: bool = False,
+) -> dict[int, str]:
     """Upload images + embeddings. Returns mapping of DuckDB image_id -> flickr_photo_id."""
     rows = conn.execute(f"""
         SELECT
@@ -119,98 +220,59 @@ def upload_images(
         "voronoi_partition_ids",
     ]
 
-    # Build tags mapping for denormalization
+    id_to_photo = {row[0]: row[2] for row in rows}
+    print(f"Images: {len(rows)} documents in DuckDB")
+
+    uploaded = resolve_uploaded_ids(
+        conn,
+        fs_client,
+        IMAGES,
+        list(id_to_photo.values()),
+        dry_run=dry_run,
+        force=force,
+        assume_uploaded=assume_uploaded,
+    )
+    targets = [row for row in rows if row[2] not in uploaded]
+    print(f"  {len(targets)} documents to upload")
+
+    if dry_run or not targets:
+        return id_to_photo
+    assert fs_client is not None
+
     image_tags = _build_image_tags(conn)
 
-    id_to_photo = {}
-    print(f"Images: {len(rows)} documents to upload")
-
-    if dry_run:
-        for row in rows:
+    def docs() -> Iterator[tuple[str, dict]]:
+        for row in targets:
             data = dict(zip(columns, row))
-            id_to_photo[data["id"]] = data["flickr_photo_id"]
-        return id_to_photo
+            image_id = data.pop("id")
 
-    # Check existing documents efficiently
-    existing_ids: set[str] = set()
-    if not force:
-        # First, cheap count check (1 read)
-        count_query = fs_client.collection("images").count()
-        count_result = count_query.get()
-        existing_count = count_result[0][0].value if count_result else 0
-        if existing_count >= len(rows):
-            print(
-                f"  All {existing_count} images already exist, skipping (use --force to overwrite)"
-            )
-            for row in rows:
-                data = dict(zip(columns, row))
-                id_to_photo[data["id"]] = data["flickr_photo_id"]
-            return id_to_photo
-        if existing_count > 0:
-            # Need to find which ones exist to skip them
-            print(
-                f"  Found {existing_count} existing images,"
-                f" checking IDs to upload remaining"
-                f" {len(rows) - existing_count}..."
-            )
-            for d in fs_client.collection("images").select([]).stream():
-                existing_ids.add(d.id)
-    else:
-        print("  Force mode: overwriting existing documents")
+            data["embedding"] = Vector(list(data.pop("embedding")))
 
-    batch = fs_client.batch()
-    batch_count = 0
-    skipped = 0
+            partition_ids = data.pop("voronoi_partition_ids")
+            if partition_ids is not None:
+                data["voronoi_partition_ids"] = list(partition_ids)
 
-    for i, row in enumerate(rows):
-        data = dict(zip(columns, row))
-        image_id = data.pop("id")
-        flickr_photo_id = data["flickr_photo_id"]
-        id_to_photo[image_id] = flickr_photo_id
+            # Denormalize tags from object_detections
+            tags = image_tags.get(image_id, [])
+            if tags:
+                data["tags"] = tags
 
-        if flickr_photo_id in existing_ids:
-            skipped += 1
-            continue
+            yield data["flickr_photo_id"], data
 
-        embedding = data.pop("embedding")
-        data["embedding"] = Vector(list(embedding))
-
-        partition_ids = data.pop("voronoi_partition_ids")
-        if partition_ids is not None:
-            data["voronoi_partition_ids"] = list(partition_ids)
-
-        # Denormalize tags from object_detections
-        tags = image_tags.get(image_id, [])
-        if tags:
-            data["tags"] = tags
-
-        doc_ref = fs_client.collection("images").document(flickr_photo_id)
-        batch.set(doc_ref, data)
-        batch_count += 1
-
-        if batch_count >= BATCH_LIMIT:
-            batch.commit()
-            print(f"  Committed {i + 1}/{len(rows)} images")
-            time.sleep(SLEEP_SECONDS)
-            batch = fs_client.batch()
-            batch_count = 0
-
-    if batch_count > 0:
-        batch.commit()
-    uploaded = len(rows) - skipped
-    print(f"  Completed: {uploaded} images uploaded ({skipped} skipped)")
-
+    count = commit_in_batches(fs_client, conn, IMAGES, docs(), len(targets))
+    print(f"  Completed: {count} images uploaded ({len(rows) - count} skipped)")
     return id_to_photo
 
 
 def upload_face_detections(
     conn: duckdb.DuckDBPyConnection,
-    fs_client: Client,
-    id_to_photo: dict[str, str],
+    fs_client: Client | None,
+    id_to_photo: dict[int, str],
     id_to_event: dict[int, str],
     dry_run: bool,
     *,
     force: bool = False,
+    assume_uploaded: bool = False,
 ) -> None:
     """Upload face detections with embeddings."""
     rows = conn.execute("""
@@ -240,88 +302,56 @@ def upload_face_detections(
         "voronoi_partition_ids",
     ]
 
-    print(f"Face detections: {len(rows)} documents to upload")
+    # Faces whose image is not uploaded as an image document are never uploaded
+    rows = [row for row in rows if row[1] in id_to_photo]
+    print(f"Face detections: {len(rows)} documents in DuckDB")
 
-    if dry_run:
+    uploaded = resolve_uploaded_ids(
+        conn,
+        fs_client,
+        FACE_DETECTIONS,
+        [row[0] for row in rows],
+        dry_run=dry_run,
+        force=force,
+        assume_uploaded=assume_uploaded,
+    )
+    targets = [row for row in rows if row[0] not in uploaded]
+    print(f"  {len(targets)} documents to upload")
+
+    if dry_run or not targets:
         return
+    assert fs_client is not None
 
-    # Check existing documents efficiently
-    existing_ids: set[str] = set()
-    if not force:
-        # First, cheap count check (1 read)
-        count_query = fs_client.collection("face_detections").count()
-        count_result = count_query.get()
-        existing_count = count_result[0][0].value if count_result else 0
-        if existing_count >= len(rows):
-            print(
-                f"  All {existing_count} face detections already exist,"
-                " skipping (use --force to overwrite)"
-            )
-            return
-        if existing_count > 0:
-            # Need to find which ones exist to skip them
-            print(
-                f"  Found {existing_count} existing face detections,"
-                f" checking IDs to upload remaining"
-                f" {len(rows) - existing_count}..."
-            )
-            for d in fs_client.collection("face_detections").select([]).stream():
-                existing_ids.add(d.id)
-    else:
-        print("  Force mode: overwriting existing documents")
+    def docs() -> Iterator[tuple[str, dict]]:
+        for row in targets:
+            data = dict(zip(columns, row))
+            face_id = data.pop("face_id")
+            image_id = data.pop("image_id")
 
-    batch = fs_client.batch()
-    batch_count = 0
-    skipped = 0
+            data["flickr_photo_id"] = id_to_photo[image_id]
 
-    for i, row in enumerate(rows):
-        data = dict(zip(columns, row))
-        face_id = data.pop("face_id")
-        image_id = data.pop("image_id")
+            # Denormalize event_name from images
+            event_name = id_to_event.get(image_id)
+            if event_name:
+                data["event_name"] = event_name
 
-        flickr_photo_id = id_to_photo.get(image_id)
-        if not flickr_photo_id:
-            skipped += 1
-            continue
+            embedding = data.pop("embedding")
+            if embedding is not None:
+                data["embedding"] = Vector(list(embedding))
 
-        if face_id in existing_ids:
-            skipped += 1
-            continue
+            partition_ids = data.get("voronoi_partition_ids")
+            if partition_ids is not None:
+                data["voronoi_partition_ids"] = list(partition_ids)
 
-        data["flickr_photo_id"] = flickr_photo_id
+            yield face_id, data
 
-        # Denormalize event_name from images
-        event_name = id_to_event.get(image_id)
-        if event_name:
-            data["event_name"] = event_name
-
-        embedding = data.pop("embedding")
-        if embedding is not None:
-            data["embedding"] = Vector(list(embedding))
-
-        partition_ids = data.get("voronoi_partition_ids")
-        if partition_ids is not None:
-            data["voronoi_partition_ids"] = list(partition_ids)
-
-        doc_ref = fs_client.collection("face_detections").document(face_id)
-        batch.set(doc_ref, data)
-        batch_count += 1
-
-        if batch_count >= BATCH_LIMIT:
-            batch.commit()
-            print(f"  Committed {i + 1}/{len(rows)} face detections")
-            time.sleep(SLEEP_SECONDS)
-            batch = fs_client.batch()
-            batch_count = 0
-
-    if batch_count > 0:
-        batch.commit()
-    print(f"  Completed: {len(rows) - skipped} face detections uploaded ({skipped} skipped)")
+    count = commit_in_batches(fs_client, conn, FACE_DETECTIONS, docs(), len(targets))
+    print(f"  Completed: {count} face detections uploaded ({len(rows) - count} skipped)")
 
 
 def update_image_voronoi(
     conn: duckdb.DuckDBPyConnection,
-    fs_client: Client,
+    fs_client: Client | None,
     dry_run: bool,
     skip: int = 0,
 ) -> None:
@@ -339,6 +369,7 @@ def update_image_voronoi(
 
     if dry_run:
         return
+    assert fs_client is not None
 
     if skip > 0:
         print(f"  Skipping first {skip} documents, resuming from {skip + 1}")
@@ -348,7 +379,7 @@ def update_image_voronoi(
     batch_count = 0
 
     for i, (flickr_photo_id, partition_ids) in enumerate(rows):
-        doc_ref = fs_client.collection("images").document(flickr_photo_id)
+        doc_ref = fs_client.collection(IMAGES).document(flickr_photo_id)
         batch.update(doc_ref, {"voronoi_partition_ids": list(partition_ids)})
         batch_count += 1
 
@@ -366,7 +397,7 @@ def update_image_voronoi(
 
 def upload_metadata(
     conn: duckdb.DuckDBPyConnection,
-    fs_client: Client,
+    fs_client: Client | None,
     dry_run: bool,
 ) -> None:
     """Upload metadata document with filter options (event names, tag labels)."""
@@ -391,6 +422,7 @@ def upload_metadata(
 
     if dry_run:
         return
+    assert fs_client is not None
 
     fs_client.collection("metadata").document("filters").set(
         {
@@ -415,12 +447,12 @@ def main() -> None:
         print("Mode: DRY RUN (no data will be uploaded)")
     print()
 
-    conn = duckdb.connect(str(db_path), read_only=True)
-
+    # Writable (except dry-run) so that uploaded IDs can be recorded
+    conn = duckdb.connect(str(db_path), read_only=args.dry_run)
     if not args.dry_run:
-        fs_client = Client(project=args.project)
-    else:
-        fs_client = None
+        ensure_tracking_table(conn)
+
+    fs_client = None if args.dry_run else Client(project=args.project)
 
     if args.update_voronoi:
         update_image_voronoi(conn, fs_client, args.dry_run, skip=args.skip)
@@ -430,9 +462,17 @@ def main() -> None:
 
     id_to_event = _build_image_event_names(conn)
 
-    id_to_photo = upload_images(conn, fs_client, args.dry_run, force=args.force)
+    id_to_photo = upload_images(
+        conn, fs_client, args.dry_run, force=args.force, assume_uploaded=args.assume_uploaded
+    )
     upload_face_detections(
-        conn, fs_client, id_to_photo, id_to_event, args.dry_run, force=args.force
+        conn,
+        fs_client,
+        id_to_photo,
+        id_to_event,
+        args.dry_run,
+        force=args.force,
+        assume_uploaded=args.assume_uploaded,
     )
     upload_metadata(conn, fs_client, args.dry_run)
 
