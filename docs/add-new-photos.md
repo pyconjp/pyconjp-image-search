@@ -73,11 +73,13 @@ uv run scripts/upload_to_firestore.py --dry-run
 uv run scripts/upload_to_firestore.py
 ```
 
-既存のドキュメントはスキップされ、新しい分だけが書き込まれます。画像・顔ともに `voronoi_partition_ids` 付きで登録され、`metadata/filters`（イベント名・タグ一覧）も更新されます。
+アップロード済みのドキュメント ID は DuckDB の `firestore_uploads` テーブルに記録されており、新しい分だけが書き込まれます。差分は DuckDB 内で計算するので、Firestore からの読み取りは発生しません。画像・顔ともに `voronoi_partition_ids` 付きで登録され、`metadata/filters`（イベント名・タグ一覧）も更新されます。
 
 **手順 3 より前に実行しないでください。** 新しい画像が Voronoi ID なしで登録され、Voronoi を使った検索で見つからなくなります。
 
-> **費用に関する注意**: 新しい分を判定するために、既存のドキュメント ID を全件読み込みます（2026 年追加時点で画像約 2.3 万件、顔約 7.3 万件）。1 回の実行で Firestore の無料枠（読み取り 5 万回/日）を超えることがあります。
+> **初回のみ**: `firestore_uploads` に記録がない状態では、既存のドキュメント ID を Firestore から一度だけ全件読み込んで記録します（画像約 2.5 万件、顔約 7.7 万件で、無料枠の読み取り 5 万回/日を超えます）。Firestore が DuckDB と同期済みだとわかっている場合は、代わりに `--assume-uploaded` を付けて実行すると、読み取りなしで現在の全件を記録できます。
+>
+> 記録は DuckDB ファイルの中にあります。別のマシンや別の DB ファイルからアップロードした分は記録されません。
 
 ## トラブルシューティング
 
@@ -87,4 +89,5 @@ uv run scripts/upload_to_firestore.py
 | `face-generate` で `Unable to import dependency onnxruntime` | `uv sync --extra ml` を実行する（`onnxruntime-gpu` は ml extras に含まれている） |
 | 顔検出が遅い（CPU で動いている） | `onnxruntime-gpu` の CUDA バージョンが torch と合っていない。torch が CUDA 12 系の間は `<1.24` を維持する |
 | `face-generate` の `Errors` が処理件数と同じ | DB への書き込みに失敗している。face_id はランダムな UUID なので、再実行する前に処理済みでない画像の `face_detections` を削除しておく（削除しないと二重登録になる） |
-| `upload_to_firestore.py` で quota exceeded | 無料枠の超過。翌日に再実行すれば続きから処理される |
+| `upload_to_firestore.py` で quota exceeded | 無料枠の超過。commit 済みの batch は記録されているので、翌日に再実行すれば続きから処理される |
+| Firestore 側のドキュメントを削除・作り直した | `firestore_uploads` の記録と食い違うので、`--force` で全件を送り直すか、該当 collection の記録を削除してから実行する |

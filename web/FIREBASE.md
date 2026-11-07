@@ -243,9 +243,13 @@ uv run scripts/upload_to_firestore.py
 | `--db` | `pyconjp_image_search.duckdb` | DuckDB ファイルパス |
 | `--project` | `pyconjp-image-search` | Firebase プロジェクト ID |
 | `--dry-run` | — | 件数のみ表示、データは投入しない |
-| `--force` | — | 既存ドキュメントをスキップせず上書きする |
+| `--force` | — | アップロード記録を無視して全件を上書きする |
+| `--assume-uploaded` | — | 記録がまだない場合に、Firestore を読まずに現在の DuckDB の全件をアップロード済みとして記録する |
+| `--update-voronoi` | — | 既存の画像ドキュメントの `voronoi_partition_ids` だけを更新する |
 
 スキーマ変更（フィールド追加等）後に既存データを更新する場合は `--force` を使用する。
+
+アップロード済みのドキュメント ID は DuckDB の `firestore_uploads` テーブル（`collection`, `doc_id`, `uploaded_at`）に batch の commit ごとに記録され、次回以降は差分だけが送られる（Firestore の読み取りは発生しない）。記録がない初回だけ、既存 ID を Firestore から一度読み込んで記録する。
 
 #### 非正規化フィールド
 
