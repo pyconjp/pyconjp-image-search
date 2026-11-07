@@ -56,7 +56,7 @@ def mark_image_processed(
         VALUES (?, ?, ?)
         ON CONFLICT (image_id, model_name) DO UPDATE SET
             face_count = EXCLUDED.face_count,
-            processed_at = current_timestamp
+            processed_at = now()
         """,
         [image_id, model_name, face_count],
     )
