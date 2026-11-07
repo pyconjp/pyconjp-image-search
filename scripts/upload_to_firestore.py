@@ -97,7 +97,7 @@ def upload_images(
         SELECT
             i.id, i.image_url, i.flickr_photo_id, i.album_id, i.album_title,
             i.event_name, i.event_year, i.event_type, i.width, i.height,
-            e.embedding
+            e.embedding, e.voronoi_partition_ids
         FROM images i
         JOIN image_embeddings e ON e.image_id = i.id
         WHERE e.model_name = '{SIGLIP_MODEL}'
@@ -116,6 +116,7 @@ def upload_images(
         "width",
         "height",
         "embedding",
+        "voronoi_partition_ids",
     ]
 
     # Build tags mapping for denormalization
@@ -173,6 +174,10 @@ def upload_images(
 
         embedding = data.pop("embedding")
         data["embedding"] = Vector(list(embedding))
+
+        partition_ids = data.pop("voronoi_partition_ids")
+        if partition_ids is not None:
+            data["voronoi_partition_ids"] = list(partition_ids)
 
         # Denormalize tags from object_detections
         tags = image_tags.get(image_id, [])
