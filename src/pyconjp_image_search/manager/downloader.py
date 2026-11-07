@@ -11,6 +11,7 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_ex
 
 from pyconjp_image_search.config import DATA_DIR
 from pyconjp_image_search.manager.flickr_client import (
+    HTTP_HEADERS,
     FlickrClient,
     FlickrPhoto,
     build_photo_url,
@@ -70,7 +71,7 @@ def download_album(
     ) as progress:
         task = progress.add_task(f"Downloading {album_title}", total=len(new_photos))
 
-        with httpx.Client(timeout=120) as http_client:
+        with httpx.Client(timeout=120, headers=HTTP_HEADERS) as http_client:
             for photo in new_photos:
                 meta = _download_single_photo(
                     http_client,

@@ -7,6 +7,11 @@ import httpx
 
 from pyconjp_image_search.config import FLICKR_API_BASE, FLICKR_API_KEY
 
+# Flickr returns 502 for httpx's default User-Agent ("python-httpx/..."),
+# so always send an explicit one.
+USER_AGENT = "pyconjp-image-search/0.1"
+HTTP_HEADERS = {"User-Agent": USER_AGENT}
+
 
 @dataclass(frozen=True)
 class FlickrPhoto:
@@ -48,7 +53,7 @@ class FlickrClient:
                 "nojsoncallback": "1",
             }
         )
-        with httpx.Client(timeout=self.timeout) as client:
+        with httpx.Client(timeout=self.timeout, headers=HTTP_HEADERS) as client:
             resp = client.get(FLICKR_API_BASE, params=params)
             resp.raise_for_status()
         data = resp.json()

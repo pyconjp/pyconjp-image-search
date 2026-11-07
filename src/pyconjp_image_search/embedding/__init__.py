@@ -91,6 +91,11 @@ def main() -> None:
         default=50,
         help="Commit to DB every N images (default: 50)",
     )
+    obj_gen_parser.add_argument(
+        "--primary-only",
+        action="store_true",
+        help="Save to the primary (SigLIP 2) DB only; skip copying to other DBs",
+    )
 
     # object-status
     subparsers.add_parser("object-status", help="Show object detection status for all DBs")
@@ -220,7 +225,7 @@ def _cmd_face_generate(args: argparse.Namespace) -> None:
     """Detect faces and generate face embeddings for all images."""
     from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn
 
-    from pyconjp_image_search.config import CLIP_DB_PATH, DATA_DIR, INSIGHTFACE_MODEL_NAME
+    from pyconjp_image_search.config import DATA_DIR, DB_PATH, INSIGHTFACE_MODEL_NAME
     from pyconjp_image_search.db import get_connection
     from pyconjp_image_search.embedding.face_repository import (
         get_face_processed_image_ids,
@@ -230,7 +235,7 @@ def _cmd_face_generate(args: argparse.Namespace) -> None:
     from pyconjp_image_search.embedding.insightface_embedder import InsightFaceEmbedder
     from pyconjp_image_search.embedding.repository import get_all_image_ids
 
-    conn = get_connection(str(CLIP_DB_PATH))
+    conn = get_connection(str(DB_PATH))
 
     all_images = get_all_image_ids(conn)
 
@@ -301,15 +306,15 @@ def _cmd_face_generate(args: argparse.Namespace) -> None:
 
 def _cmd_face_status() -> None:
     """Show face detection status."""
-    from pyconjp_image_search.config import CLIP_DB_PATH, INSIGHTFACE_MODEL_NAME
+    from pyconjp_image_search.config import DB_PATH, INSIGHTFACE_MODEL_NAME
     from pyconjp_image_search.db import get_connection
     from pyconjp_image_search.embedding.face_repository import get_face_stats
 
-    conn = get_connection(str(CLIP_DB_PATH))
+    conn = get_connection(str(DB_PATH))
     total, processed, faces = get_face_stats(conn, INSIGHTFACE_MODEL_NAME)
     conn.close()
     print(f"Model: {INSIGHTFACE_MODEL_NAME}")
-    print(f"DB: {CLIP_DB_PATH}")
+    print(f"DB: {DB_PATH}")
     print(f"Processed: {processed}/{total} images")
     print(f"Faces detected: {faces}")
     if processed > 0:
@@ -403,6 +408,10 @@ def _cmd_object_generate(args: argparse.Namespace) -> None:
     print(f"\nDetection done: {len(pending)} images, {total_objects} objects detected.")
     if errors > 0:
         print(f"  Errors: {errors}")
+
+    if args.primary_only:
+        print("\n--primary-only: skipped copying to other DBs.")
+        return
 
     # Copy results to other DBs
     other_models = ["siglip-large", "clip"]

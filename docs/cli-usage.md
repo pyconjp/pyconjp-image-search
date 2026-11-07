@@ -112,6 +112,7 @@ uv run pyconjp-embed object-status
 | `--limit` | 全件 | 処理する最大画像数 |
 | `--force` | - | 既存の検出結果を削除して再実行 |
 | `--commit-interval` | `50` | N 画像ごとに DB にコミット |
+| `--primary-only` | - | SigLIP 2 base DB のみに保存し、他 DB へのコピーをスキップ |
 
 ## 検索 UI (`pyconjp-search`)
 

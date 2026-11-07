@@ -112,6 +112,7 @@ pyconjp-image-search/
 
 | ドキュメント | 内容 |
 |-------------|------|
+| [docs/add-new-photos.md](docs/add-new-photos.md) | 新しい写真の追加手順（ダウンロード〜Firestore 反映） |
 | [docs/cli-usage.md](docs/cli-usage.md) | CLI コマンドリファレンス |
 | [docs/database-schema.md](docs/database-schema.md) | DuckDB テーブル定義 |
 | [docs/voronoi-search.md](docs/voronoi-search.md) | 顔検索の高速化（Voronoi 分割） |
